@@ -1,0 +1,92 @@
+#!/bin/bash
+
+function cleanup {
+    echo "Cleaning up..."
+    # Kill airodump-ng process
+    pkill -f "airodump-ng $interface"
+    exit 0
+}
+
+trap cleanup INT
+
+function show_help {
+    echo "Usage: $0 -i <interface> [options]"
+    echo "Options:"
+    echo "  -i <INTERFACE>    Mandatory: Specify interface name."
+    echo "  -b <BSSID>        Optional: Specify the BSSID."
+    echo "  -c <channel>      Optional: Specify the channel."
+    echo "  -u                Optional: Enable uptime information."
+    echo "  -m                Optional: Enable manufacturer information."
+    echo "  -w                Optional: Enable WPS information."
+    echo "  -W <prefix>       Optional: Specify the output file prefix."
+    echo "  -e <ESSID>        Optional: Specify the ESSID. Use quotes for names with spaces."
+    echo "  -B <band>         Optional: Specify the band (abg)."
+    echo "  -T <TIMER>        Optional: Exit the program after TIMER seconds."
+    echo "  -h, --help        Display this help message."
+}
+
+# Set the default values for optional parameters
+bssid=""
+channel=""
+uptime_flag=""
+manufacturer_flag=""
+wps_flag=""
+output_file_prefix=""
+essid=""
+band=""
+timer=""
+interface=""
+
+# Check if no arguments are provided or help is requested
+if [ $# -eq 0 ] || [ "$1" == "--help" ] || [ "$1" == "-h" ]; then
+    show_help
+    exit 1
+fi
+
+while getopts ":i:b:c:umwW:e:B:T:h" opt; do
+    case $opt in
+        i) interface="$OPTARG" ;;
+        b) bssid="$OPTARG" ;;
+        c) channel="$OPTARG" ;;
+        u) uptime_flag="--uptime" ;;
+        m) manufacturer_flag="--manufacturer" ;;
+        w) wps_flag="--wps" ;;
+        W) output_file_prefix="$OPTARG" ;;
+        e) essid="$OPTARG" ;;
+        T) timer="$OPTARG"
+           ( sleep "$timer" && cleanup ) & ;;
+        B) band="$OPTARG" ;;
+        h) show_help
+           exit 0 ;;
+        \?) echo "Invalid option: -$OPTARG" >&2
+            show_help
+            exit 1 ;;
+        :) echo "Option -$OPTARG requires an argument." >&2
+           show_help
+           exit 1 ;;
+    esac
+done
+
+# Check if interface is provided
+if [ -z "$interface" ]; then
+    echo "Error: Interface name not provided. Use the -i option." >&2
+    show_help
+    exit 1
+fi
+
+# Check if both -c and -B are provided
+if [ -n "$channel" ] && [ -n "$band" ]; then
+    echo "Options -c and -B cannot be used together."
+    exit 1
+fi
+
+# Run airodump-ng with the dynamically built command
+airodump-ng "$interface" \
+  $( [ -n "$bssid" ] && echo "--bssid $bssid" ) \
+  $( [ -n "$channel" ] && echo "--channel $channel" ) \
+  $( [ -n "$uptime_flag" ] && echo "$uptime_flag" ) \
+  $( [ -n "$manufacturer_flag" ] && echo "$manufacturer_flag" ) \
+  $( [ -n "$wps_flag" ] && echo "$wps_flag" ) \
+  $( [ -n "$output_file_prefix" ] && echo "--write $output_file_prefix" ) \
+  $( [ -n "$essid" ] && echo "--essid \"$essid\"" ) \
+  $( [ -n "$band" ] && echo "--band $band" )

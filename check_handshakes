@@ -1,0 +1,112 @@
+#!/bin/bash
+
+# Help menu function
+function display_help {
+    echo "Usage: $0 -d directory"
+    echo
+    echo "Check cleaned cap/pcap files in the specified directory for certain conditions."
+    echo "Created for the WiFi Pineapple, which cleans the capture files to include only 4 Keys and 1 Beacon."
+    echo "This will NOT WORK as intended with raw captures."
+    echo
+    echo "Options:"
+    echo "  -d directory    Specify the directory containing cap/pcap files"
+    echo
+    echo "Info:"
+    echo "  - GREAT: Useful for both Hashcat & Aircrack-ng."
+    echo "  - GOOD: Useful for Hashcat Only (Usually a Half Handshake)."
+    echo "  - OK: Useful for Hashcat Only (Usually a Half Handshake)."
+    echo "  - LIKELY BAD: Useful for Aircrack-ng Only (MUST HAVE 4 KEYS)."
+    echo "  - BAD: Not useful for either Hashcat or Aircrack-ng."
+    echo
+    echo "Conditions:"
+    echo "  - GREAT: 4 keys, Beacon/Probe Y, associated .22000 file Y"
+    echo "  - GOOD: 3 keys, Beacon/Probe Y, associated .22000 file Y"
+    echo "  - OK:   2 keys, Beacon/Probe Y, associated .22000 file Y"
+    echo "  - LIKELY BAD: 2-4 keys, Beacon/Probe Y, associated .22000 file N"
+    echo "  - BAD:  1-4 keys, Beacon/Probe N" 
+    echo "  - BAD: 1 Key, Beacon/Probe Y"
+    exit 1
+}
+
+# Initialize variables with default values
+folder=""
+
+# Parse command line options
+while getopts ":d:h" opt; do
+  case $opt in
+    d)
+      folder="$OPTARG"
+      ;;
+    h)
+      display_help
+      ;;
+    \?)
+      echo "Invalid option: -$OPTARG" >&2
+      exit 1
+      ;;
+    :)
+      echo "Option -$OPTARG requires an argument." >&2
+      exit 1
+      ;;
+  esac
+done
+
+# Check if the -d option is specified
+if [ -z "$folder" ]; then
+    echo "Option -d is mandatory. Please specify the directory containing cap/pcap files."
+    display_help
+fi
+
+# Check if the specified directory exists
+if [ ! -d "$folder" ]; then
+  echo "Directory $folder does not exist."
+  exit 1
+fi
+
+# Check if the specified directory is empty or has no cap/pcap files
+if [ -z "$(ls -A "$folder"/*.pcap 2>/dev/null)" ] && [ -z "$(ls -A "$folder"/*.cap 2>/dev/null)" ]; then
+    echo "No cap/pcap files found in directory $folder."
+    exit 1
+fi
+
+# Loop through each file in the folder
+for file in "$folder"/*.pcap "$folder"/*.cap; do
+    # Check if the file exists
+    if [ ! -f "$file" ]; then
+        continue
+    fi
+
+    echo "$file"
+    
+    # Use tcpdump to analyze the pcap file and redirect output to /dev/null
+    keys_count=$(tcpdump -r "$file" 2>/dev/null | grep "key" | wc -l)
+    beacon_present=$(tcpdump -r "$file" 2>/dev/null | grep -q "Beacon" && echo "Y" || echo "N")
+    probe_present=$(tcpdump -r "$file" 2>/dev/null | grep -q "Probe" && echo "Y" || echo "N")
+    associated_file=""
+    
+    # Check if there is an associated .22000 file
+    if [ -e "${file%.pcap*}.22000" ]; then
+        associated_file="Y"
+    else
+        associated_file="N"
+    fi
+
+    # Determine the condition
+    condition="UNKNOWN"
+    if [ $keys_count -eq 4 ] && ( [ "$beacon_present" == "Y" ] || [ "$probe_present" == "Y" ] ) && [ "$associated_file" == "Y" ]; then
+        condition="GREAT"
+    elif [ $keys_count -eq 3 ] && ( [ "$beacon_present" == "Y" ] || [ "$probe_present" == "Y" ] ) && [ "$associated_file" == "Y" ]; then
+        condition="GOOD"
+    elif [ $keys_count -eq 2 ] && ( [ "$beacon_present" == "Y" ] || [ "$probe_present" == "Y" ] ) && [ "$associated_file" == "Y" ]; then
+        condition="OK"
+    elif [ $keys_count -ge 2 ] && [ $keys_count -le 4 ] && ( [ "$beacon_present" == "Y" ] || [ "$probe_present" == "Y" ] ) && [ "$associated_file" == "N" ]; then
+        condition="LIKELY BAD"
+    elif [ $keys_count -ge 1 ] && ( [ "$beacon_present" == "N" ] || [ "$probe_present" == "N" ] ); then
+        condition="BAD"
+    fi
+    
+    # Formulate the fancy echo message
+    echo "[$condition] Keys [$keys_count] Beacon [$beacon_present] Probe [$probe_present] Associated .22000 file [$associated_file]"
+
+    echo
+done

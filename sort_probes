@@ -1,0 +1,12 @@
+#!/bin/bash
+
+output="/root/probes_sorted.txt"
+
+echo "Sorting gathered probes"
+
+# Escape special characters in the excluded ESSIDs
+
+# Sort and exclude specified ESSIDs
+cat /root/gprobes/probes* | sort | uniq > "$output"
+
+echo "Done! You can find your gathered probes at $output"

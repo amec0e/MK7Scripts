@@ -1,0 +1,79 @@
+#!/bin/bash
+
+change_mac() {
+    local main_interface=$1
+    local main_mon_interface="${main_interface}mon"
+
+    if [ "$main_interface" == "wlan2" ]; then
+        echo "Warning: Changing MAC address of $main_interface may result in connection loss if you are connected over this interface."
+
+        read -e -p "Do you want to proceed? (y/n): " confirm
+        if [ "$confirm" != "y" ]; then
+            echo "Operation canceled. No changes made."
+            exit 0
+        fi
+
+        ip link set $main_interface down
+        generated_mac=$(macchanger -r $main_interface | grep "New MAC:" | awk '{print $3}')
+        wlan2_manuf=$(macchanger -s $main_interface | grep "Current MAC:" | grep -o -E '\(.*\)')
+        echo "New MAC for $main_interface: $generated_mac $wlan2_manuf"
+        ip link set $main_interface address $generated_mac
+        ip link set $main_interface up
+    fi
+
+    read -e -p "Enter the desired MAC address for $main_interface (leave blank for random generation): " manual_mac
+
+    monitor_vif $main_interface > /dev/null
+    iwconfig $main_interface mode monitor
+    iwconfig $main_interface channel 3
+
+    ip link set $main_interface down
+    [ -n "$main_mon_interface" ] && ip link set $main_mon_interface down
+
+    if [ -z "$manual_mac" ]; then
+        generated_mac=$(macchanger -r $main_interface | grep "New MAC:" | awk '{print $3}')
+    else
+        generated_mac=$manual_mac
+    fi
+
+    ip link set $main_interface address $generated_mac
+
+    if [ -n "$main_mon_interface" ] && [ "$main_interface" != "$main_mon_interface" ]; then
+        ip link set $main_mon_interface address $generated_mac
+    fi
+
+    [ -n "$main_mon_interface" ] && ip link set $main_mon_interface up
+
+    show_main_mac=$(ip link show $main_interface | awk '/link/ {print $2}')
+    show_mon_mac=$(ip link show $main_mon_interface | awk '/link/ {print $2}')
+    manuf=$(macchanger -s $main_interface | grep "Current MAC:" | grep -o -E '\(.*\)')
+    manuf_mon=$(macchanger -s $main_mon_interface | grep "Current MAC:" | grep -o -E '\(.*\)')    
+
+    echo "New MAC for $main_interface: $show_main_mac $manuf"
+    echo "New MAC for $main_mon_interface: $show_mon_mac $manuf_mon"
+}
+
+wlan1="wlan1"
+wlan3="wlan3"
+wlan2="wlan2"
+
+echo "Which interface(s) do you want to change?"
+echo "1. $wlan1 (2.4GHz)"
+echo "2. $wlan3 (2.4GHz + 5.0GHz)"
+echo "3. $wlan2 (client iface)"
+read -e -p "Enter your choice (1, 2, or 3): " choice
+
+case $choice in
+    1)
+        change_mac $wlan1
+        ;;
+    2)
+        change_mac $wlan3
+        ;;
+    3)
+        change_mac $wlan2
+        ;;
+    *)
+        echo "Invalid choice. Please enter 1, 2, or 3."
+        ;;
+esac

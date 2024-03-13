@@ -1,0 +1,426 @@
+#!/bin/bash
+
+case $1 in
+    help)
+        echo "Usage: $0 <option> <value>"
+        echo -e "\nNOTICE: These changes made are not permanent in case of a error"
+        echo " a reboot will reset these changes. If you want to make them permanent"
+        echo " then use 'uci commit' this will commit ALL changes made!"
+        echo
+        echo -e "\nOptions:"
+        echo "  karma                      [on or off]"
+        echo "  beacon_interval            [LOW, NORMAL or AGGRESSIVE]"
+        echo "  beacon_response_interval   [LOW, NORMAL or AGGRESSIVE]"
+        echo "  beacon_responses           [on or off]"
+        echo "  broadcast_ssid_pool        [on or off]"
+        echo "  broadcast_ssid_pool_random [on or off]"
+        echo "  mac_filter                 [black or white]"
+        echo "  ssid_filter                [black or white]"
+        echo "  target_mac                 <MAC_ADDRESS>"
+        echo "  handshakes_path            <PATH>"
+        echo "  ssid_db_path               <PATH>"
+        echo "  filters_db_path            <PATH>"
+        echo "  connect_notifications      [on or off]"
+        echo "  disconnect_notifications   [on or off]"
+        echo "  auto_ssid_filter           [on or off]"
+        echo "  auto_mac_filter            [on or off]"
+        echo "  pineape_passthrough        [on or off]"
+        echo "  hostapd_db_path            <PATH>"
+        echo "  recon_db_path              <PATH>"
+        echo "  pineap_mac                 <MAC_ADDRESS>"
+        echo "  evil_ap_handshakes         [on or off]"
+        echo "  capture_ssids              [on or off]"
+        echo "  logging                    [on or off]"
+        echo "  autostart                  [on or off]"
+        echo "  pineap_interface           [wlan1mon or wlan3mon]"
+        echo "  run_scan [duration sec (0 = Continuous)] [Band: 0,1,2 (2.4GHz,5GHz,Both)] [capture handshakes: 0,1 (off,on)]"
+        echo "  show_scan                  (Show current running scan, if any)"
+        echo "  stop_scan                  (Stop current running scan, if any)"
+        echo "  show_config                (Show curent uci config)"
+        echo "  clear_logs                 (Clears activity log [log.db])"
+        echo "  start_handshake_capture    [bssid] [channel]"
+        echo "  stop_handshake_capture     (Stop current handshake capture, if any)"
+        echo "  deauth                     [AP MAC] [Client MAC] [Channel] [Count]"
+        ;;
+
+    karma)
+        if [ "$2" == "on" ] || [ "$2" == "off" ]; then
+            uci set pineap.@config[0].karma="$2"
+            echo "Karma updated successfully."
+            /etc/init.d/pineapd restart
+        else
+            echo "Invalid value for Karma. Use 'on' or 'off'."
+        fi
+        ;;
+
+    beacon_interval)
+        if [ -n "$2" ]; then
+            uci set pineap.@config[0].beacon_interval="$2"
+            echo "Beacon Interval updated successfully."
+            /etc/init.d/pineapd restart
+        else
+            echo "Invalid value for Beacon Interval. Please provide a valid value."
+        fi
+        ;;
+
+    beacon_response_interval)
+        if [ -n "$2" ]; then
+            uci set pineap.@config[0].beacon_response_interval="$2"
+            echo "Beacon Response Interval updated successfully."
+            /etc/init.d/pineapd restart
+        else
+            echo "Invalid value for Beacon Response Interval. Please provide a valid value."
+        fi
+        ;;
+
+    beacon_responses)
+        if [ "$2" == "on" ] || [ "$2" == "off" ]; then
+            uci set pineap.@config[0].beacon_responses="$2"
+            echo "Beacon Responses updated successfully."
+            /etc/init.d/pineapd restart
+        else
+            echo "Invalid value for Beacon Responses. Use 'on' or 'off'."
+        fi
+        ;;
+
+    broadcast_ssid_pool)
+        if [ "$2" == "on" ] || [ "$2" == "off" ]; then
+            uci set pineap.@config[0].broadcast_ssid_pool="$2"
+            echo "Broadcast SSID Pool updated successfully."
+            /etc/init.d/pineapd restart
+        else
+            echo "Invalid value for Broadcast SSID Pool. Use 'on' or 'off'."
+        fi
+        ;;
+
+    broadcast_ssid_pool_random)
+        if [ "$2" == "on" ] || [ "$2" == "off" ]; then
+            uci set pineap.@config[0].broadcast_ssid_pool_random="$2"
+            echo "Broadcast SSID Pool Random updated successfully."
+            /etc/init.d/pineapd restart
+        else
+            echo "Invalid value for Broadcast SSID Pool Random. Use 'on' or 'off'."
+        fi
+        ;;
+
+    mac_filter)
+        if [ "$2" == "black" ] || [ "$2" == "white" ]; then
+            uci set pineap.@config[0].mac_filter="$2"
+            echo "MAC Filter updated successfully."
+            /etc/init.d/pineapd restart
+        else
+            echo "Invalid value for MAC Filter. Use 'black' or 'white'."
+        fi
+        ;;
+
+    ssid_filter)
+        if [ "$2" == "black" ] || [ "$2" == "white" ]; then
+            uci set pineap.@config[0].ssid_filter="$2"
+            echo "SSID Filter updated successfully."
+            /etc/init.d/pineapd restart
+        else
+            echo "Invalid value for SSID Filter. Use 'black' or 'white'."
+        fi
+        ;;
+
+    target_mac)
+        if [ -n "$2" ]; then
+            uci set pineap.@config[0].target_mac="$2"
+            echo "Target MAC updated successfully."
+            /etc/init.d/pineapd restart
+        else
+            echo "Invalid value for Target MAC. Please provide a valid MAC address."
+        fi
+        ;;
+
+    handshakes_path)
+        if [ -n "$2" ]; then
+            uci set pineap.@config[0].handshakes_path="$2"
+            echo "Handshakes Path updated successfully."
+            /etc/init.d/pineapd restart
+        else
+            echo "Invalid value for Handshakes Path. Please provide a valid path."
+        fi
+        ;;
+
+    ssid_db_path)
+        if [ -n "$2" ]; then
+            uci set pineap.@config[0].ssid_db_path="$2"
+            echo "SSID DB Path updated successfully."
+            /etc/init.d/pineapd restart
+        else
+            echo "Invalid value for SSID DB Path. Please provide a valid path."
+        fi
+        ;;
+
+    filters_db_path)
+        if [ -n "$2" ]; then
+            uci set pineap.@config[0].filters_db_path="$2"
+            echo "Filters DB Path updated successfully."
+            /etc/init.d/pineapd restart
+        else
+            echo "Invalid value for Filters DB Path. Please provide a valid path."
+        fi
+        ;;
+
+    connect_notifications)
+        if [ "$2" == "on" ] || [ "$2" == "off" ]; then
+            uci set pineap.@config[0].connect_notifications="$2"
+            echo "Connect Notifications updated successfully."
+            /etc/init.d/pineapd restart
+        else
+            echo "Invalid value for Connect Notifications. Use 'on' or 'off'."
+        fi
+        ;;
+
+    disconnect_notifications)
+        if [ "$2" == "on" ] || [ "$2" == "off" ]; then
+            uci set pineap.@config[0].disconnect_notifications="$2"
+            echo "Disconnect Notifications updated successfully."
+            /etc/init.d/pineapd restart
+        else
+            echo "Invalid value for Disconnect Notifications. Use 'on' or 'off'."
+        fi
+        ;;
+
+    auto_ssid_filter)
+        if [ "$2" == "on" ] || [ "$2" == "off" ]; then
+            uci set pineap.@config[0].auto_ssid_filter="$2"
+            echo "Auto SSID Filter updated successfully."
+            /etc/init.d/pineapd restart
+        else
+            echo "Invalid value for Auto SSID Filter. Use 'on' or 'off'."
+        fi
+        ;;
+
+    auto_mac_filter)
+        if [ "$2" == "on" ] || [ "$2" == "off" ]; then
+            uci set pineap.@config[0].auto_mac_filter="$2"
+            echo "Auto MAC Filter updated successfully."
+            /etc/init.d/pineapd restart
+        else
+            echo "Invalid value for Auto MAC Filter. Use 'on' or 'off'."
+        fi
+        ;;
+
+    pineape_passthrough)
+        if [ "$2" == "on" ] || [ "$2" == "off" ]; then
+            uci set pineap.@config[0].pineape_passthrough="$2"
+            echo "PineAPe Passthrough updated successfully."
+            /etc/init.d/pineapd restart
+        else
+            echo "Invalid value for PineAPe Passthrough. Use 'on' or 'off'."
+        fi
+        ;;
+
+    hostapd_db_path)
+        if [ -n "$2" ]; then
+            uci set pineap.@config[0].hostapd_db_path="$2"
+            echo "HostAPD DB Path updated successfully."
+            /etc/init.d/pineapd restart
+        else
+            echo "Invalid value for HostAPD DB Path. Please provide a valid path."
+        fi
+        ;;
+
+    recon_db_path)
+        if [ -n "$2" ]; then
+            uci set pineap.@config[0].recon_db_path="$2"
+            echo "Recon DB Path updated successfully."
+            /etc/init.d/pineapd restart
+        else
+            echo "Invalid value for Recon DB Path. Please provide a valid path."
+        fi
+        ;;
+
+    pineap_mac)
+        if [ -n "$2" ]; then
+            uci set pineap.@config[0].pineap_mac="$2"
+            echo "PineAP MAC updated successfully."
+            /etc/init.d/pineapd restart
+        else
+            echo "Invalid value for PineAP MAC. Please provide a valid MAC address."
+        fi
+        ;;
+
+    evil_ap_handshakes)
+        if [ "$2" == "on" ] || [ "$2" == "off" ]; then
+            uci set pineap.@config[0].evil_ap_handshakes="$2"
+            echo "Evil AP Handshakes updated successfully."
+            /etc/init.d/pineapd restart
+        else
+            echo "Invalid value for Evil AP Handshakes. Use 'on' or 'off'."
+        fi
+        ;;
+
+    capture_ssids)
+        if [ "$2" == "on" ] || [ "$2" == "off" ]; then
+            uci set pineap.@config[0].capture_ssids="$2"
+            echo "Capture SSIDs updated successfully."
+            /etc/init.d/pineapd restart
+        else
+            echo "Invalid value for Capture SSIDs. Use 'on' or 'off'."
+        fi
+        ;;
+
+    logging)
+        if [ "$2" == "on" ] || [ "$2" == "off" ]; then
+            uci set pineap.@config[0].logging="$2"
+            echo "Logging updated successfully."
+            /etc/init.d/pineapd restart
+        else
+            echo "Invalid value for Logging. Use 'on' or 'off'."
+        fi
+        ;;
+
+    autostart)
+        if [ "$2" == "on" ] || [ "$2" == "off" ]; then
+            uci set pineap.@config[0].autostart="$2"
+            echo "Autostart updated successfully."
+            /etc/init.d/pineapd restart
+        else
+            echo "Invalid value for Autostart. Use 'on' or 'off'."
+        fi
+        ;;
+
+    pineap_interface)
+        if [ -n "$2" ]; then
+            uci set pineap.@config[0].pineap_interface="$2"
+            echo "PineAP Interface updated successfully."
+            /etc/init.d/pineapd restart
+        else
+            echo "Invalid value for PineAP Interface. Please provide a valid interface."
+        fi
+        ;;
+
+    show_config)
+        echo "Current PineAP Config:"
+        echo
+        uci show pineap
+        ;;
+
+    run_scan)
+        if [ $# -eq 4 ]; then
+            # Check if a scan is already running
+            scan_status=$(pineap get_status | grep '"scanRunning": false')
+            
+            if [ -z "$scan_status" ]; then
+                echo "A scan is already running. Use 'pineap get_status' to check the status."
+            else
+                duration="$2"
+                band_choice="$3"
+                autocapture_choice="$4"
+
+                case $band_choice in
+                    0|1|2)
+                        # Valid band choice
+                        ;;
+                    *)
+                        echo "Invalid frequency band choice. Use 0 for 2.4GHz, 1 for 5GHz, or 2 for Both."
+                        exit 1
+                        ;;
+                esac
+
+                case $autocapture_choice in
+                    0|1)
+                        # Valid autocapture choice
+                        ;;
+                    *)
+                        echo "Invalid autocapture choice. Use 0 for off or 1 for on."
+                        exit 1
+                        ;;
+                esac
+
+                # Check if band_choice is 1 (5GHz) or 2 (Both) and interface is not wlan1 or wlan1mon
+                interface=$(uci show pineap | grep "pineap.@config\[0\].pineap_interface" | cut -d "'" -f 2)
+                if [ "$band_choice" -eq 1 ] || [ "$band_choice" -eq 2 ]; then
+                    if [ "$interface" != "wlan1" ] && [ "$interface" != "wlan1mon" ]; then
+                        # Execute the scan command with the provided arguments
+                        pineap run_scan "$duration" "$band_choice" "$autocapture_choice"
+                        echo "Scan started successfully."
+                    else
+                        echo "Cannot run scan on 5GHz or Both band when interface is wlan1 or wlan1mon."
+                    fi
+                else
+                    # Execute the scan command with the provided arguments
+                    pineap run_scan "$duration" "$band_choice" "$autocapture_choice"
+                    echo "Scan started successfully."
+                fi
+            fi
+        else
+            echo "Invalid number of arguments. Usage: $0 scan <duration> <frequency_band> <autocapture>"
+        fi
+        ;;
+
+    show_scan)
+        echo "Showing current scan status:"
+        echo
+        pineap get_status
+        echo
+        ;;
+
+    stop_scan)
+        pineap stop_scan
+        echo "Stopped current scan"
+        ;;
+
+    clear_logs)
+        pineap clear_logs
+        echo "Logs Cleared."
+        ;;
+
+    start_handshake_capture)
+        if [ -n "$2" ] && [ -n "$3" ]; then
+            if pineap get_status | grep -q "\"bssid\":"; then
+                echo "Handshake capture is already running. Cannot start again."
+            else
+                echo "Starting handshake capture for BSSID: $2 and channel: $3"
+                echo
+                pineap handshake_capture_start $2 $3
+            fi
+        else
+            echo "Invalid arguments. Please provide both BSSID and channel."
+        fi
+        ;;
+
+    stop_handshake_capture)
+        pineap handshake_capture_stop
+        echo "Stopped Handshake Capture"
+        ;;
+
+    deauth)
+        IFACE=$(uci get pineap.@config[0].pineap_interface)
+        if [ -n "$2" ] && [ -n "$3" ] && [ -n "$4" ] && [ -n "$5" ]; then
+            if [[ ("$IFACE" = "wlan1" || "$IFACE" = "wlan1mon") && ( "$4" -ge 1 && "$4" -le 14) ]]; then
+                echo "Starting deauth with the following options:"
+                echo
+                echo "AP MAC: $2"
+                echo "Client MAC: $3"
+                echo "Channel: $4"
+                echo "Packet count: $5"
+                echo
+                pineap deauth $3 $2 $4 $5
+            elif [[ ("$IFACE" = "wlan3" || "$IFACE" = "wlan3mon") ]]; then
+                echo "Starting deauth with the following options:"
+                echo
+                echo "AP MAC: $2"
+                echo "Client MAC: $3"
+                echo "Channel: $4"
+                echo "Packet count: $5"
+                echo
+                pineap deauth $3 $2 $4 $5
+            else
+                echo "Invalid channel for 2.4GHz interface." 
+                echo "Please enter a channel between 1 and 14 for $IFACE"
+            fi
+        else
+            echo "Invalid arguments. Please provide AP MAC address, Client MAC, channel, and packet count."
+        fi
+        ;;
+
+    *)
+        # Display help menu if no arguments provided
+        echo "Usage: $0 <option> <value>"
+        echo "Use '$0 help' to see the available options and usage."
+        ;;
+esac

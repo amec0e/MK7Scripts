@@ -1,0 +1,91 @@
+#!/bin/bash
+
+# Function to display help menu
+function display_help {
+    echo "Usage: $0 [-e <input_file>]"
+    echo "Options:"
+    echo "  -e, --exclude-file  Specify the input file containing SSIDs to exclude (each SSID on a separate line)"
+    echo "  -h, --help          Display this help menu"
+    exit 1
+}
+
+# Function to clean up and exit
+function cleanup {
+    echo "Cleaning up..."
+    pkill -f "sqlite3 /tmp/log.db"
+    rm -f /tmp/log.db  # Remove the temporary log file
+    exit 0
+}
+
+output_dir="/root/gprobes"
+counter=1
+excluded_ssids=""
+
+while getopts ":e:h" opt; do
+    case $opt in
+        e)
+            input_file="$OPTARG"
+            ;;
+        h)
+            display_help
+            ;;
+        \?)
+            echo "Error: Invalid option -$OPTARG"
+            display_help
+            ;;
+        :)
+            echo "Error: Option -$OPTARG requires an argument."
+            display_help
+            ;;
+    esac
+done
+
+# Check if the input file is provided
+if [ -z "$input_file" ]; then
+    echo "Error: No input file specified."
+    display_help
+fi
+
+# Check if the input file exists
+if [ ! -f "$input_file" ]; then
+    echo "Error: Input file '$input_file' not found."
+    exit 1
+fi
+
+# Check if the directory already exists
+if [ ! -d "$output_dir" ]; then
+    echo "Creating directory: $output_dir"
+    mkdir -p "$output_dir"
+else
+    echo "Directory $output_dir already exists. Skipping."
+fi
+
+# Find the next available output file name
+while [ -e "$output_dir/probes$counter.txt" ]; do
+    ((counter++))
+done
+
+output_file="$output_dir/probes$counter.txt"
+
+echo "Gathering All Probes within log.db"
+echo "This might take some time if your log.db is big"
+
+# Copy the current log.db to tmp
+# Change to your log directory (default: /root/log.db)
+
+cp /root/pinelogs/activity/log.db /tmp
+
+# Constructing awk command to exclude SSIDs
+awk_command="BEGIN { while (getline < \"$input_file\") { ssids[\$0] = 1 } }"
+awk_command+=' { if ($3 in ssids) next; print $3 " | " $2 }'
+
+sqlite3 /tmp/log.db "select * from log;" | awk -F '|' "$awk_command" | sort | uniq > "$output_file"
+
+# Remove db from tmp
+
+rm /tmp/log.db
+
+# Echo Completed.
+
+echo
+echo "Completed! You can find your probes file in: $output_file"
