@@ -241,7 +241,7 @@ This allows you to adjust all of the options you would find using `uci show pine
 
 **Help Menu:**
 ```
-Usage: /bin/bpineap <option> <value>
+Usage: ./bpineap <option> <value>
 
 NOTICE: These changes made are not permanent in case of a error
  a reboot will reset these changes. If you want to make them permanent
@@ -295,7 +295,7 @@ This is similar to deauther except this uses `aireplay-ng` to perform the deauth
 
 **Help Menu:**
 ```
-Usage: ${0} [-i INTERFACE] [-a AP_BSSID] [-c CHANNEL] [-s STA_BSSID] [-t AP_BSSID_FILE] [-w WAIT] [-r REPEATS] [-n COUNT] [-x SPEED] [-R REASON] [-h]
+Usage: ./airedeauth [-i INTERFACE] [-a AP_BSSID] [-c CHANNEL] [-s STA_BSSID] [-t AP_BSSID_FILE] [-w WAIT] [-r REPEATS] [-n COUNT] [-x SPEED] [-R REASON] [-h]
 
 Options:
   -i INTERFACE    Specify the interface name to use.
@@ -357,7 +357,7 @@ This uses a simple loop to take a input list of BSSIDs and Channel numbers and o
 
 **Help Menu:**
 ```
-Usage: $0 [-h] [-i FILE] [-t TIMER] [-s]
+Usage: ./capture_handshakes [-h] [-i FILE] [-t TIMER] [-s]
 Options:
   -h          Display this help menu."
   -i FILE     Input file containing BSSIDs and channels.
