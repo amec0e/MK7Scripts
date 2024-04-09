@@ -1,5 +1,15 @@
 #!/bin/bash
 
+cleanup() {
+    echo -e "\nCleaning up..."
+    pkill -P $$
+    wait
+    echo "Done."
+    exit 0
+}
+
+trap cleanup SIGINT SIGTERM
+
 change_mac() {
     local main_interface=$1
     local main_mon_interface="${main_interface}mon"
@@ -24,6 +34,7 @@ change_mac() {
     read -e -p "Enter the desired MAC address for $main_interface (leave blank for random generation): " manual_mac
 
     monitor_vif $main_interface > /dev/null
+    sleep 2
     iwconfig $main_interface mode monitor
     iwconfig $main_interface channel 3
 

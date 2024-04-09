@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Function to display help menu
-function display_help {
+display_help() {
     echo "Usage: $0 [-e <input_file>]"
     echo "Options:"
     echo "  -e, --exclude-file  Specify the input file containing SSIDs to exclude (each SSID on a separate line)"
@@ -10,12 +10,16 @@ function display_help {
 }
 
 # Function to clean up and exit
-function cleanup {
-    echo "Cleaning up..."
-    pkill -f "sqlite3 /tmp/log.db"
+cleanup() {
+    echo -e "\nCleaning up..."
+    pkill -P $$
+    wait
     rm -f /tmp/log.db  # Remove the temporary log file
+    echo "Done."
     exit 0
 }
+
+trap cleanup SIGINT SIGTERM
 
 output_dir="/root/gprobes"
 counter=1

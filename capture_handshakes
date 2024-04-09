@@ -1,0 +1,252 @@
+#!/bin/bash
+
+LOCK_FILE="/tmp/$(basename "${0}").lock"
+
+# Check if lock file exists
+if [ -e "$LOCK_FILE" ]; then
+    echo "Another instance of the script is already running. Exiting."
+    exit 1
+fi
+
+# Create lock file
+touch "${LOCK_FILE}"
+
+# Function to display help menu
+usage() {
+    echo "Usage: $0 [-h] [-i FILE] [-t TIMER] [-s] "
+    echo "Options:"
+    echo "  -h          Display this help menu."
+    echo "  -i FILE     Input file containing BSSIDs and channels."
+    echo "  -t TIMER    Time to capture per target in seconds."
+    echo "  -s          Shuffle lines in input file (Switch)."
+    echo
+    echo "Input File Format:"
+    echo "  BSSID1,CHANNEL"
+    echo "  BSSID2,CHANNEL"
+    echo "  BSSID3,CHANNEL"
+    echo
+    echo "Input file must not contain spaces."
+    echo
+    exitfail
+}
+
+# Function to clean up on interrupt
+cleanup() {
+    echo -e "\nStopping any running scans."
+    pineap handshake_capture_stop 2>/dev/null
+    if $SHUFFLE; then
+        rm "${FILE}"
+    fi
+    rm "${LOCK_FILE}"
+    pkill -P $$
+    wait
+    echo "Done."
+    exit 0
+}
+
+exitfail() {
+    rm "${LOCK_FILE}"
+    exit 1
+}
+
+shuffle_file() {
+    input_file="$1"
+    
+    # Get the base name of the input file
+    base_name=$(basename "$input_file")
+    
+    # Generate a temporary file name in the temporary directory
+    temp_file="/tmp/${base_name}.shuff"
+    
+    # Shuffle the input file and output to the temporary file
+    shuf "$input_file" | awk -F',' 'BEGIN {OFS=","} {print $1,$2}' > "$temp_file"
+    
+    # Set the input file to the shuffled temporary file
+    FILE="$temp_file"
+}
+
+# Trap interrupt signals
+trap cleanup SIGINT SIGTERM
+
+# Function to prompt user to stop scan
+prompt_stop_scan() {
+    read -e -p "A scan or capture is already running. Would you like to stop it and continue? (Y/N): " choice
+    case "$choice" in
+        [yY])
+            pineap stop_scan
+            pineap handshake_capture_stop
+            echo "The running scan has been stopped."
+            ;;
+        [nN])
+            echo "Current scan not stopped. Exiting..."
+            exitfail
+            ;;
+        *)
+            echo "Invalid choice. Exiting..."
+            exitfail
+            ;;
+    esac
+}
+
+# Initialize variables
+FILE=""
+TIMER=""
+SHUFFLE=false
+
+# Parse options
+while getopts ":hi:t:s" opt; do
+    case $opt in
+        h)
+            usage
+            ;;
+        i)
+            FILE=$OPTARG
+            ;;
+        t)
+            TIMER=$OPTARG
+            ;;
+        s)
+            SHUFFLE=true
+            ;;
+        \?)
+            echo "Invalid option: -$OPTARG" >&2
+            usage
+            ;;
+        :)
+            echo "Option -$OPTARG requires an argument." >&2
+            usage
+            ;;
+    esac
+done
+
+# Check if input file and timer are provided
+if [ -z "$FILE" ] || [ -z "$TIMER" ]; then
+    echo "[ERROR]: Input file and timer value must be set."
+    usage
+fi
+
+# Check if input file exists
+if [ ! -f "$FILE" ]; then
+    echo "[ERROR]: Input file '$FILE' not found."
+    exitfail
+fi
+
+# Get the currently used interface
+INTERFACE=$(uci show pineap | grep "pineap_interface" | awk -F "'" '{print $2}')
+
+# Check interface
+if [[ "$INTERFACE" == "wlan1" || "$INTERFACE" == "wlan1mon" || "$INTERFACE" == "wlan2" || "$INTERFACE" == "wlan2mon" ]]; then
+    # Loop through input file
+    while IFS=',' read -r BSSID CHANNEL; do
+        # Check if the line is empty
+        if [ -z "$BSSID" ] || [ -z "$CHANNEL" ]; then
+            continue
+        fi
+        
+        # Check if channel is within range
+        if (( $CHANNEL < 1 || $CHANNEL > 14 )); then
+            echo "[ERROR]: Channels must be within 1-14 for 2.4GHz interfaces."
+            echo "[ERROR]: Please remove 5GHz channels from the input file."
+            exitfail
+        fi
+    done < "${FILE}"
+# Check if interface is wlan3, wlan3mon for 5GHz channel check
+elif [[ "$INTERFACE" == "wlan3" || "$INTERFACE" == "wlan3mon" ]]; then
+    # Loop through input file
+    while IFS=',' read -r BSSID CHANNEL; do
+        # Check if the line is empty
+        if [ -z "$BSSID" ] || [ -z "$CHANNEL" ]; then
+            continue
+        fi
+        
+        # Check if channel is valid (not less than 1)
+        if (( $CHANNEL < 1 )); then
+            echo "[ERROR]: Channels must be 1 or greater for 5GHz interfaces."
+            echo "[ERROR]: Please check your input file."
+            exitfail
+        fi
+    done < "${FILE}"
+else
+    echo "Interface not recognized or not configured as a 2.4GHz or 5GHz interface. Exiting..."
+    exitfail
+fi
+
+# Check if a handshake capture is already running
+status=$(pineap get_status)
+if [[ $status =~ "\"bssid\":" && $status =~ "\"captureRunning\": true" && $status =~ "\"scanRunning\": false" ]]; then
+    prompt_stop_scan
+elif [[ $status =~ "\"scanRunning\": true" ]]; then
+    prompt_stop_scan
+fi
+
+# Check for BSSID and CHANNEL format
+if ! awk -F',' '{if (!match($1, /^[0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){5}$/) || !match($2, /^[0-9]{1,3}$/)) exit 1}' "${FILE}"; then
+    echo "[ERROR]: Each line in the input file must be in the format 'BSSID,CHANNEL'."
+    echo "[ERROR]: Please check your input file."
+    exitfail
+fi
+
+# Count total BSSIDs in the file
+BSSID_COUNT=$(awk -F',' 'NF==2 {print $0}' "${FILE}" | wc -l)
+echo "Total BSSIDs in the file: ${BSSID_COUNT}"
+
+if $SHUFFLE; then
+    shuffle_file "${FILE}"
+fi
+
+# Loop through input file
+first_run=true
+while true; do
+    # Initial message for the first run
+    if [ "$first_run" = true ]; then
+        echo "Starting Handshake capture in 10 seconds with the following options."
+        echo "------------------------------"
+        echo "Time Started: $(date)"
+        echo "------------------------------"
+        while IFS=',' read -r BSSID CHANNEL || [ -n "$BSSID" ]; do
+            echo "Target WAP: ${BSSID}"
+            echo "Target Channel: ${CHANNEL}"
+        done < "${FILE}"
+        echo "------------------------------"
+        echo
+        sleep 10
+        first_run=false
+    fi
+
+    # Loop through input file
+    while IFS=',' read -r BSSID CHANNEL || [ -n "$BSSID" ]; do
+        # Set interface channel
+        iwconfig "${INTERFACE}" channel "${CHANNEL}"
+
+        # Start capture
+        echo
+        echo "Started Handshake capture."
+        echo "------------------------------"
+        echo "Time Started: $(date)"
+        echo "------------------------------"
+        echo "Target WAP: ${BSSID}"
+        echo "Target Channel: ${CHANNEL}"
+        echo "------------------------------"
+        pineap handshake_capture_start "${BSSID}" "${CHANNEL}"
+
+        # Sleep
+        echo "Sleeping for ${TIMER} seconds"
+        sleep "${TIMER}"
+
+        # Stop capture
+        echo "Stopped Handshake Capture"
+        pineap handshake_capture_stop
+    done < "${FILE}"
+
+    # Check if it's the last line of the file
+    if [ -z "$BSSID" ]; then
+        echo "All BSSIDs completed."
+        break
+    fi
+done
+
+if $SHUFFLE; then
+    rm "${FILE}"
+fi
+
+rm "${LOCK_FILE}"

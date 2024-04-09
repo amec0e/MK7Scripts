@@ -28,6 +28,16 @@ function display_help {
     exit 1
 }
 
+cleanup() {
+    echo -e "\nCleaning up..."
+    pkill -P $$
+    wait
+    echo "Done."
+    exit 0
+}
+
+trap cleanup SIGINT SIGTERM
+
 # Initialize variables with default values
 folder=""
 

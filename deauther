@@ -1,7 +1,7 @@
 #!/bin/bash
 
 show_help() {
-    echo "Usage: $0 [-i INTERFACE] [-c CHAN] [-b BSSID] [-s STATION] [-t AP_BSSID_FILE] [-T STATION_BSSID_FILE] [-d DURATION] [-w WAIT] [-r REPEATS] [-p SPEED] [-h]"
+    echo "Usage: ${0} [-i INTERFACE] [-c CHAN] [-b BSSID] [-s STATION] [-t AP_BSSID_FILE] [-T STATION_BSSID_FILE] [-d DURATION] [-w WAIT] [-r REPEATS] [-p SPEED] [-h]"
     echo
     echo
     echo "Options:"
@@ -36,34 +36,34 @@ show_help() {
     echo "Examples:"
     echo
     echo "Single Target AP, Single Channel:"
-    echo "  $0 -i wlan1mon -c 6 -b 00:11:22:33:44:55"
+    echo "  ${0} -i wlan1mon -c 6 -b 00:11:22:33:44:55"
     echo
     echo "Single Target Station, Single Channel:"
-    echo "  $0 -i wlan1mon -s 00:11:22:33:44:55 -c 10"
+    echo "  ${0} -i wlan1mon -s 00:11:22:33:44:55 -c 10"
     echo
     echo "AP BSSID File, With Optional Defaults:"
-    echo "  $0 -i wlan3mon -t targets.txt -d 20 -w 30 -r 5"
+    echo "  ${0} -i wlan3mon -t targets.txt -d 20 -w 30 -r 5"
     echo
     echo "AP BSSID File, Defaults Only:"
-    echo "  $0 -i wlan1mon -t targets.txt"
+    echo "  ${0} -i wlan1mon -t targets.txt"
     echo
     echo "Station BSSID file, Defaults:"
-    echo "  $0 -i wlan1mon -T stations.txt"
+    echo "  ${0} -i wlan1mon -T stations.txt"
     echo
     echo "Station BSSID file (Quick Sweep):"
-    echo "  $0 -i wlan1mon -T stations.txt -d 11 -w 5 -r 1"
+    echo "  ${0} -i wlan1mon -T stations.txt -d 11 -w 5 -r 1"
     echo
 }
 
 cleanup() {
-    echo "Cleaning up..."
+    echo -e "\nCleaning up..."
     pkill -P $$  
     wait
     echo "Cleanup complete. Exiting script."
     exit 0
 }
 
-trap cleanup SIGINT
+trap cleanup SIGINT SIGTERM
 
 DEFAULT_DURATION=30
 DEFAULT_WAIT=40

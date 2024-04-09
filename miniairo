@@ -1,16 +1,17 @@
 #!/bin/bash
 
 function cleanup {
-    echo "Cleaning up..."
-    # Kill airodump-ng process
-    pkill -f "airodump-ng $interface"
+    echo -e "\nCleaning up..."
+    pkill -P $$
+    wait
+    echo "Done."
     exit 0
 }
 
-trap cleanup INT
+trap cleanup SIGINT SIGTERM
 
 function show_help {
-    echo "Usage: $0 -i <interface> [options]"
+    echo "Usage: ${0} -i <interface> [options]"
     echo "Options:"
     echo "  -i <INTERFACE>    Mandatory: Specify interface name."
     echo "  -b <BSSID>        Optional: Specify the BSSID."
