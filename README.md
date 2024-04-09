@@ -11,7 +11,7 @@ Myself (amec0e) assumes NO liability or responsibility for any misuse or uninten
 
 These tools are provided with the expectation that users will comply with all applicable laws and regulations. They are intended for educational and research purposes only.
 
-**Please note:** Myself (amec0e) DOES NOT provide support for these tools.
+**Please note:** Myself (amec0e) **DOES NOT** provide support for these tools.
 
 ## Contents:
 
@@ -25,6 +25,7 @@ These tools are provided with the expectation that users will comply with all ap
 8. [bpineap](https://github.com/amec0e/MK7Scripts?tab=readme-ov-file#bpineap)
 9. [check_handshakes](https://github.com/amec0e/MK7Scripts?tab=readme-ov-file#check_handshakes)
 10. [airedeauth](https://github.com/amec0e/MK7Scripts?tab=readme-ov-file#airedeauth)
+11. [capture_handshakes](https://github.com/amec0e/MK7Scripts?tab=readme-ov-file#capture_handshakes)
 
 
 **Tip:** If you want to be able to tab autocomplete the commands, just put them in `/bin/`, this will allow you to autocomplete the command by pressing the tab key.
@@ -288,14 +289,13 @@ Options:
 This is similar to deauther except this uses `aireplay-ng` to perform the deauthentication, this is more useful for more defined targeting.
 
 **Usage:**
-
 ```
 ./airedeauth -i wlan1mon -a 00:11:22:33:44:55 -s aa:bb:cc:dd:ee:ff -c 6
 ```
 
 **Help Menu:**
 ```
-Usage: ./airedeauth [-i INTERFACE] [-a AP_BSSID] [-c CHANNEL] [-s STA_BSSID] [-t AP_BSSID_FILE] [-w WAIT] [-r REPEATS] [-n COUNT] [-x SPEED] [-h]
+Usage: ${0} [-i INTERFACE] [-a AP_BSSID] [-c CHANNEL] [-s STA_BSSID] [-t AP_BSSID_FILE] [-w WAIT] [-r REPEATS] [-n COUNT] [-x SPEED] [-R REASON] [-h]
 
 Options:
   -i INTERFACE    Specify the interface name to use.
@@ -303,17 +303,30 @@ Options:
   -c CHANNEL      Specify the channel number (mandatory if not using -t).
   -s STA_BSSID    Specify the target STA BSSID (mandatory for single target if not using -t).
   -t FILE         Specify the path to the file containing target AP BSSIDs and channels (one per line, format: BSSID,STATION,CHAN).
-  -w WAIT         Specify the delay between runs in seconds (default: 60).
-  -r REPEATS      Specify how many times the cycle should repeat (default: 3).
-  -p COUNT        Specify the number of deauthentication packet groups to send per run (default: 1).
+  -w WAIT         Specify the delay between runs in seconds (default: $DEFAULT_WAIT).
+  -r REPEATS      Specify how many times the cycle should repeat (default: $DEFAULT_REPEATS).
+  -p COUNT        Specify the number of deauthentication packet groups to send per run (default: $DEFAULT_COUNT).
   -x SPEED        Specify the packet speed (default: unlimited).
+  -R REASON       Specify the deauthentication reason code (default: $DEFAULT_REASON).
   -h              Show this help menu.
 
 Default Values:
-  WAIT           30 seconds
-  REPEATS        1 times
-  COUNT          1 packets
-  SPEED          1 packets/second
+  WAIT           $DEFAULT_WAIT seconds
+  REPEATS        $DEFAULT_REPEATS times
+  COUNT          $DEFAULT_COUNT packets
+  SPEED          $DEFAULT_SPEED packets/second.
+  REASON         $DEFAULT_REASON reason code.
+
+Reason Codes:
+  1 - Unspecified reason.
+  2 - Previous authentication no longer valid.
+  3 - Deauthenticated because sending station (STA) is leaving or has left Independent Basic Service Set (IBSS) or ESS.
+  4 - Disassociated due to inactivity.
+  5 - Disassociated because WAP device is unable to handle all currently associated STAs.
+  6 - Class 2 frame received from nonauthenticated STA.
+  7 - Class 3 frame received from nonassociated STA.
+  8 - Disassociated because sending STA is leaving or has left Basic Service Set.
+  9 - STA requesting (re)association is not authenticated with responding STA.
 
 Target File Format for AP BSSID File:
 
@@ -323,11 +336,75 @@ Target File Format for AP BSSID File:
 Examples:
 
 Single Target AP, Single Channel:
-  ./airedeauth -i wlan1mon -a 00:11:22:33:44:55 -c 6
+  airedeauth -i wlan1mon -a 00:11:22:33:44:55 -c 6
 
 Single Target AP and Target STA, Single Channel:
-  ./airedeauth -i wlan1mon -a 00:11:22:33:44:55 -s aa:bb:cc:dd:ee:ff -c 6
+  airedeauth -i wlan1mon -a 00:11:22:33:44:55 -s aa:bb:cc:dd:ee:ff -c 6
 
 AP BSSID File, With Optional Defaults:
-  ./airedeauth -i wlan3mon -t targets.txt -w 30 -r 5
+  airedeauth -i wlan3mon -t targets.txt -w 30 -r 5
+```
+
+
+## capture_handshakes
+
+This uses a simple loop to take a input list of BSSIDs and Channel numbers and one by one starts `pineap handshake_capture_start` and `pineap handshake_capture_stop`. This allows you to start a dedicated handshake capture the same way you would if using the WebUI, to simply stop and start capturing handshakes for different BSSIDs on different channels. Use this with `screen` and you can start a 24 hour handshake capture spree targeting selected access points on their corresponding channels. You can only run one instance of this as it will conflict with other scans otherwise and there might be some unintended behaviour.
+
+**Usage:**
+```
+./capture_handshakes -i file.txt -t 60 -s
+```
+
+**Help Menu:**
+```
+Usage: $0 [-h] [-i FILE] [-t TIMER] [-s]
+Options:
+  -h          Display this help menu."
+  -i FILE     Input file containing BSSIDs and channels.
+  -t TIMER    Time to capture per target in seconds.
+  -s          Shuffle lines in input file (Switch).
+  
+Input File Format:
+  BSSID1,CHANNEL"
+  BSSID2,CHANNEL"
+  BSSID3,CHANNEL"
+
+Input file must not contain spaces.
+```
+
+
+## check_handshakes
+
+This is another simple script that uses tcpdump to read a .cap/pcap file for the amount of keys it has within the capture and if a beacon or probe response is contained within it and if the associated .22000 hashcat file was successfully generated from that file.
+
+**Usage:**
+```
+./check_handshakes -d handshakes
+```
+
+**Help Menu:**
+```
+Usage: ./check_handshakes -d DIR
+
+Check cleaned cap/pcap files in the specified directory for certain conditions."
+Created for the WiFi Pineapple, which cleans the capture files to include only 4 Keys and 1 Beacon.
+This will NOT WORK as intended with raw captures.
+
+Options:
+  -d directory    Specify the directory containing cap/pcap files
+
+Info:
+  - GREAT: Useful for both Hashcat & Aircrack-ng.
+  - GOOD: Useful for Hashcat Only (Usually a Half Handshake).
+  - OK: Useful for Hashcat Only (Usually a Half Handshake).
+  - LIKELY BAD: Useful for Aircrack-ng Only (MUST HAVE 4 KEYS).
+  - BAD: Not useful for either Hashcat or Aircrack-ng.
+
+Conditions:
+  - GREAT: 4 keys, Beacon/Probe Y, associated .22000 file Y
+  - GOOD: 3 keys, Beacon/Probe Y, associated .22000 file Y
+  - OK:   2 keys, Beacon/Probe Y, associated .22000 file Y
+  - LIKELY BAD: 2-4 keys, Beacon/Probe Y, associated .22000 file N
+  - BAD:  1-4 keys, Beacon/Probe N 
+  - BAD: 1 Key, Beacon/Probe Y
 ```
