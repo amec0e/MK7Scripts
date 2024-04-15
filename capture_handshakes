@@ -13,19 +13,23 @@ touch "${LOCK_FILE}"
 
 # Function to display help menu
 usage() {
-    echo "Usage: $0 [-h] [-i FILE] [-t TIMER] [-s] "
+    echo "Usage: $0 [-h] [-i FILE] [-t TIMER] [-s] [-u] "
     echo "Options:"
     echo "  -h          Display this help menu."
     echo "  -i FILE     Input file containing BSSIDs and channels."
     echo "  -t TIMER    Time to capture per target in seconds."
-    echo "  -s          Shuffle lines in input file (Switch)."
+    echo "  -s SWITCH   Shuffle lines in input file."
+    echo "  -u SWITCH   Update channel numbers for all BSSIDs in the input file."
     echo
     echo "Input File Format:"
     echo "  BSSID1,CHANNEL"
     echo "  BSSID2,CHANNEL"
     echo "  BSSID3,CHANNEL"
     echo
-    echo "Input file must not contain spaces."
+    echo "---------------NOTES---------------"
+    echo " 1. Input file must not contain spaces."
+    echo " 2. -u switch will modify your input files channels."
+    echo "-----------------------------------"
     echo
     exitfail
 }
@@ -47,6 +51,66 @@ cleanup() {
 exitfail() {
     rm "${LOCK_FILE}"
     exit 1
+}
+
+updatechannels() {
+    echo "Updating input files channels. Please Wait.."
+
+    # Prompt the user for the band choice
+    read -p "Choose band for scanning and updating (2.4GH - 1 / 5GHz - 2 / Both - 3): " band_choice
+
+    # Check if the user's choice matches the detected interface
+    case "$band_choice" in
+        1)
+            BAND="gb"
+            ASLEEP=35
+            if [[ "$INTERFACE" != "wlan1mon" && "$INTERFACE" != "wlan3mon" ]]; then
+                echo "Interface mismatch. Please use wlan1mon or wlan3mon for 2.4GHz scanning."
+                exitfail
+            fi
+            ;;
+        2)
+            BAND="a"
+            ASLEEP=35
+            if [[ "$INTERFACE" != "wlan3mon" ]]; then
+                echo "Interface mismatch. Please use wlan3mon for 5GHz scanning."
+                exitfail
+            fi
+            ;;
+        3)
+            BAND="agb"
+            ASLEEP=65
+            if [[ "$INTERFACE" == "wlan1mon" ]]; then
+                echo "Interface mismatch. wlan1mon cannot be used for 5GHz scanning."
+                exitfail
+            fi
+            ;;
+        *)
+            echo "Invalid choice. Please choose 2.4GHz, 5GHz, or Both."
+            exitfail
+            ;;
+    esac
+
+    # Run airodump-ng
+    airodump-ng --band "$BAND" --output-format csv --write-interval 2 -n "$APACKETC" -w temp_output "$INTERFACE" &
+    sleep $ASLEEP
+    kill $!
+
+    # Extract and update channel numbers
+    while IFS=',' read -r bssid old_channel; do
+        # Extract new channel number from temp_output
+        new_channel=$(grep "$bssid" temp_output-01.csv | head -n 1 | cut -d ',' -f 4)
+
+        # Update channel number in input file
+        awk -F',' -v OFS=',' -v bssid="$bssid" -v new_channel="$new_channel" 'BEGIN { OFS = "," } $1 == bssid { gsub(/^[[:space:]]+|[[:space:]]+$/, "", $2); gsub(/^[[:space:]]+|[[:space:]]+$/, "", new_channel); if ($2 != new_channel) $2 = new_channel; print } $1 != bssid' "$FILE" > temp && mv temp "$FILE"
+    done < "$FILE"
+
+    # Clean up temporary files
+    rm temp_output*
+
+    echo "All BSSIDs channels within a detectable range have been updated."
+    echo "Please check your input file and run the script again."
+    exitfail
 }
 
 shuffle_file() {
@@ -92,9 +156,12 @@ prompt_stop_scan() {
 FILE=""
 TIMER=""
 SHUFFLE=false
+UPDATE=false
+# Airodump variables
+APACKETC=1
 
 # Parse options
-while getopts ":hi:t:s" opt; do
+while getopts ":hi:t:su" opt; do
     case $opt in
         h)
             usage
@@ -107,6 +174,9 @@ while getopts ":hi:t:s" opt; do
             ;;
         s)
             SHUFFLE=true
+            ;;
+        u)
+            UPDATE=true
             ;;
         \?)
             echo "Invalid option: -$OPTARG" >&2
@@ -130,6 +200,7 @@ if [ ! -f "$FILE" ]; then
     echo "[ERROR]: Input file '$FILE' not found."
     exitfail
 fi
+
 
 # Get the currently used interface
 INTERFACE=$(uci show pineap | grep "pineap_interface" | awk -F "'" '{print $2}')
@@ -169,6 +240,12 @@ elif [[ "$INTERFACE" == "wlan3" || "$INTERFACE" == "wlan3mon" ]]; then
 else
     echo "Interface not recognized or not configured as a 2.4GHz or 5GHz interface. Exiting..."
     exitfail
+fi
+
+# Check if update is selected
+
+if $UPDATE; then
+    updatechannels
 fi
 
 # Check if a handshake capture is already running
