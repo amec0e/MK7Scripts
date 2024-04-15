@@ -29,6 +29,10 @@ usage() {
     echo "---------------NOTES---------------"
     echo " 1. Input file must not contain spaces."
     echo " 2. -u switch will modify your input files channels."
+    echo " 3. -u switch may add the dbi as the channel in some cases."
+    echo " 3.1. to fix 3 just remove offending character and re-run."
+    echo " 4. When using -u channel be empty if AP is not as active."
+    echo " 5. must specify -i and -t still when using -u switch."
     echo "-----------------------------------"
     echo
     exitfail
