@@ -31,7 +31,7 @@ usage() {
     echo " 2. -u switch will modify your input files channels."
     echo " 3. -u switch may add the dbi as the channel in some cases."
     echo " 3.1. to fix 3 just remove offending character and re-run."
-    echo " 4. When using -u channel be empty if AP is not as active or in range."
+    echo " 4. When using -u channel may be empty if AP is not as active or in range."
     echo " 5. must specify -i and -t still when using -u switch."
     echo "-----------------------------------"
     echo
@@ -67,7 +67,7 @@ updatechannels() {
     case "$band_choice" in
         1)
             BAND="gb"
-            ASLEEP=35
+            ASLEEP=44
             if [[ "$INTERFACE" != "wlan1mon" && "$INTERFACE" != "wlan3mon" ]]; then
                 echo "Interface mismatch. Please use wlan1mon or wlan3mon for 2.4GHz scanning."
                 exitfail
@@ -75,7 +75,7 @@ updatechannels() {
             ;;
         2)
             BAND="a"
-            ASLEEP=35
+            ASLEEP=44
             if [[ "$INTERFACE" != "wlan3mon" ]]; then
                 echo "Interface mismatch. Please use wlan3mon for 5GHz scanning."
                 exitfail
@@ -83,7 +83,7 @@ updatechannels() {
             ;;
         3)
             BAND="agb"
-            ASLEEP=65
+            ASLEEP=88
             if [[ "$INTERFACE" == "wlan1mon" ]]; then
                 echo "Interface mismatch. wlan1mon cannot be used for 5GHz scanning."
                 exitfail
@@ -162,7 +162,8 @@ TIMER=""
 SHUFFLE=false
 UPDATE=false
 # Airodump variables
-APACKETC=1
+# Adjust to filter APs based on amount of data received.
+APACKETC=0
 
 # Parse options
 while getopts ":hi:t:su" opt; do
