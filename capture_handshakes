@@ -11,6 +11,18 @@ fi
 # Create lock file
 touch "${LOCK_FILE}"
 
+# Initialize variables
+FILE=""
+TIMER=""
+SHUFFLE=false
+UPDATE=false
+
+# Airodump variables
+DEFAULT_SCANTIME=30
+DEFAULT_FILTERBYDATA=0
+DEFAULT_WRITEINT=1
+DEFAULT_FILTERUNASSOC=true
+
 # Function to display help menu
 usage() {
     echo "Usage: $0 [-h] [-i FILE] [-t TIMER] [-s] [-u] "
@@ -21,10 +33,35 @@ usage() {
     echo "  -s SWITCH   Shuffle lines in input file."
     echo "  -u SWITCH   Update channel numbers for all BSSIDs in the input file."
     echo
+    echo "Default Values for Channel Update:"
+    echo
+    echo "  Filter APs by data received:"
+    echo "  FILTERBYDATA     ${DEFAULT_FILTERBYDATA}"
+    echo
+    echo "  Scan Duration to update channels (in seconds):"
+    echo "  SCANTIME         ${DEFAULT_SCANTIME}s"
+    echo
+    echo "  Time to write results to temp_output (in seconds):"
+    echo "  WRITEINT         ${DEFAULT_WRITEINT}s"
+    echo
+    echo "  Filter unassociated clients:"
+    echo "  FILTERUNASSOC    ${DEFAULT_FILTERUNASSOC}"
+    echo
     echo "Input File Format:"
     echo "  BSSID1,CHANNEL"
     echo "  BSSID2,CHANNEL"
     echo "  BSSID3,CHANNEL"
+    echo
+    echo "Usage Examples:"
+    echo
+    echo "Basic usage:"
+    echo "  ${0} -i inputfile.txt -t 300"
+    echo
+    echo "Shuffle input file:"
+    echo "  ${0} -i inputfile.txt -t 300 -s"
+    echo
+    echo "Update BSSID channels in input file:"
+    echo "  ${0} -i inputfile.txt -t 1 -u"
     echo
     echo "---------------NOTES---------------"
     echo " 1. Input file must not contain spaces."
@@ -59,15 +96,23 @@ exitfail() {
 
 updatechannels() {
     echo "Updating input files channels. Please Wait.."
+    echo "SCANTIME VALUE:      ${SCANTIME}s"
+    echo "FILTERBYDATA VALUE:  ${FILTERBYDATA}"
+    echo "WRITEINT VALUE:      ${WRITEINT}s"
+    echo "FILTERUNASSOC VALUE: ${FILTERUNASSOC}"
 
     # Prompt the user for the band choice
-    read -p "Choose band for scanning and updating (2.4GH - 1 / 5GHz - 2 / Both - 3): " band_choice
+    echo
+    echo "Choose band for scanning and updating:"
+    echo "1. 2.4GHz"
+    echo "2. 5GHz"
+    echo "3. Both (2.4GHz and 5GHz)"
+    read -e -p "Enter your choice: " band_choice
 
     # Check if the user's choice matches the detected interface
     case "$band_choice" in
         1)
             BAND="gb"
-            ASLEEP=44
             if [[ "$INTERFACE" != "wlan1mon" && "$INTERFACE" != "wlan3mon" ]]; then
                 echo "Interface mismatch. Please use wlan1mon or wlan3mon for 2.4GHz scanning."
                 exitfail
@@ -75,7 +120,6 @@ updatechannels() {
             ;;
         2)
             BAND="a"
-            ASLEEP=44
             if [[ "$INTERFACE" != "wlan3mon" ]]; then
                 echo "Interface mismatch. Please use wlan3mon for 5GHz scanning."
                 exitfail
@@ -83,7 +127,6 @@ updatechannels() {
             ;;
         3)
             BAND="agb"
-            ASLEEP=88
             if [[ "$INTERFACE" == "wlan1mon" ]]; then
                 echo "Interface mismatch. wlan1mon cannot be used for 5GHz scanning."
                 exitfail
@@ -95,11 +138,17 @@ updatechannels() {
             ;;
     esac
 
-    # Run airodump-ng
-    airodump-ng --band "$BAND" --output-format csv --write-interval 2 -n "$APACKETC" -w temp_output "$INTERFACE" &
-    sleep $ASLEEP
-    kill $!
-
+    if [ "$FILTERUNASSOC" == true ]; then
+        # Run airodump-ng
+        airodump-ng --band "$BAND" --output-format csv --write-interval "$WRITEINT" -n "$FILTERBYDATA" -w temp_output -a "$INTERFACE" &
+        sleep $SCANTIME
+        kill $!
+    else
+        airodump-ng --band "$BAND" --output-format csv --write-interval "$WRITEINT" -n "$FILTERBYDATA" -w temp_output "$INTERFACE" &
+        sleep $SCANTIME
+        kill $!
+    fi
+ 
     # Extract and update channel numbers
     while IFS=',' read -r bssid old_channel; do
         # Extract new channel number from temp_output
@@ -155,15 +204,6 @@ prompt_stop_scan() {
             ;;
     esac
 }
-
-# Initialize variables
-FILE=""
-TIMER=""
-SHUFFLE=false
-UPDATE=false
-# Airodump variables
-# Adjust to filter APs based on amount of data received.
-APACKETC=0
 
 # Parse options
 while getopts ":hi:t:su" opt; do
@@ -248,9 +288,21 @@ else
 fi
 
 # Check if update is selected
-
 if $UPDATE; then
-    updatechannels
+    echo "Update flag detected."
+    read -e -p "Enter value for SCANTIME (default: ${DEFAULT_SCANTIME}s): " SCANTIME
+    SCANTIME=${SCANTIME:-$DEFAULT_SCANTIME}
+
+    read -e -p "Enter value for FILTERBYDATA (default: ${DEFAULT_FILTERBYDATA}): " FILTERBYDATA
+    FILTERBYDATA=${FILTERBYDATA:-$DEFAULT_FILTERBYDATA}
+
+    read -e -p "Enter value for WRITEINT (default: ${DEFAULT_WRITEINT}s): " WRITEINT
+    WRITEINT=${WRITEINT:-$DEFAULT_WRITEINT}
+
+    read -e -p "Enter value for FILTERUNASSOC (default: ${DEFAULT_FILTERUNASSOC}): " FILTERUNASSOC
+    FILTERUNASSOC=${FILTERUNASSOC:-$DEFAULT_FILTERUNASSOC}
+
+    updatechannels "$SCANTIME" "$FILTERBYDATA" "$WRITEINT" "$FILTERUNASSOC"
 fi
 
 # Check if a handshake capture is already running
