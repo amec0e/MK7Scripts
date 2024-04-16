@@ -357,19 +357,52 @@ This uses a simple loop to take a input list of BSSIDs and Channel numbers and o
 
 **Help Menu:**
 ```
-Usage: ./capture_handshakes [-h] [-i FILE] [-t TIMER] [-s]
+Usage: ./capture_handshakes [-h] [-i FILE] [-t TIMER] [-s] [-u]
 Options:
-  -h          Display this help menu."
+  -h          Display this help menu.
   -i FILE     Input file containing BSSIDs and channels.
   -t TIMER    Time to capture per target in seconds.
-  -s          Shuffle lines in input file (Switch).
-  
-Input File Format:
-  BSSID1,CHANNEL"
-  BSSID2,CHANNEL"
-  BSSID3,CHANNEL"
+  -s SWITCH   Shuffle lines in input file.
+  -u SWITCH   Update channel numbers for all BSSIDs in the input file.
 
-Input file must not contain spaces.
+Default Values for Channel Update:
+
+  Filter APs by data received:
+  FILTERBYDATA     0
+
+  Scan Duration to update channels (in seconds):
+  SCANTIME         30s
+
+  Time to write results to temp_output (in seconds):
+  WRITEINT         1s
+
+  Filter unassociated clients:
+  FILTERUNASSOC    true
+
+Input File Format:
+  BSSID1,CHANNEL
+  BSSID2,CHANNEL
+  BSSID3,CHANNEL
+
+Usage Examples:
+
+Basic usage:
+  ./capture_handshakes -i inputfile.txt -t 300
+
+Shuffle input file:
+  ./capture_handshakes -i inputfile.txt -t 300 -s
+
+Update BSSID channels in input file:
+  ./capture_handshakes -i inputfile.txt -t 1 -u
+
+---------------NOTES---------------
+ 1. Input file must not contain spaces.
+ 2. -u switch will modify your input files channels.
+ 3. -u switch may add the dbi as the channel in some cases.
+ 4. to fix 3 just remove offending character and re-run.
+ 5. When using -u channel may be empty if AP is not as active or in range.
+ 6. must specify -i and -t still when using -u switch.
+-----------------------------------
 ```
 
 
