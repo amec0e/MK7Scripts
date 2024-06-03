@@ -35,8 +35,8 @@ change_mac() {
 
     monitor_vif $main_interface > /dev/null
     sleep 2
-    iwconfig $main_interface mode monitor
-    iwconfig $main_interface channel 3
+#    iwconfig $main_interface mode monitor
+    iwconfig $main_interface channel 1
 
     ip link set $main_interface down
     [ -n "$main_mon_interface" ] && ip link set $main_mon_interface down
