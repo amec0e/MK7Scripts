@@ -348,6 +348,9 @@ AP BSSID File, With Optional Defaults:
 
 ## capture_handshakes
 
+**requires:** `coreutils-shuf`
+**install:** `opkg install coreutils-shuf`
+
 This uses a simple loop to take a input list of BSSIDs and Channel numbers and one by one starts `pineap handshake_capture_start` and `pineap handshake_capture_stop`. This allows you to start a dedicated handshake capture the same way you would if using the WebUI, to simply stop and start capturing handshakes for different BSSIDs on different channels. Use this with `screen` and you can start a 24 hour handshake capture spree targeting selected access points on their corresponding channels. You can only run one instance of this as it will conflict with other scans otherwise and there might be some unintended behaviour.
 
 **Usage:**
