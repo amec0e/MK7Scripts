@@ -15,17 +15,19 @@ These tools are provided with the expectation that users will comply with all ap
 
 ## Contents:
 
-1. [Macspoof](https://github.com/amec0e/MK7Scripts?tab=readme-ov-file#macspoof)
-2. [Miniairo](https://github.com/amec0e/MK7Scripts?tab=readme-ov-file#miniairo)
-3. [gather_probes](https://github.com/amec0e/MK7Scripts?tab=readme-ov-file#gather_probes)
-4. [sort_probes](https://github.com/amec0e/MK7Scripts?tab=readme-ov-file#sort_probes)
-5. [Process_MAL_Only.py](https://github.com/amec0e/MK7Scripts?tab=readme-ov-file#process_mal_onlypy)
-6. [Process_MLA_Complete.py](https://github.com/amec0e/MK7Scripts?tab=readme-ov-file#process_mla_completepy)
-7. [deauther](https://github.com/amec0e/MK7Scripts?tab=readme-ov-file#deauther)
-8. [bpineap](https://github.com/amec0e/MK7Scripts?tab=readme-ov-file#bpineap)
-9. [check_handshakes](https://github.com/amec0e/MK7Scripts?tab=readme-ov-file#check_handshakes)
-10. [airedeauth](https://github.com/amec0e/MK7Scripts?tab=readme-ov-file#airedeauth)
-11. [capture_handshakes](https://github.com/amec0e/MK7Scripts?tab=readme-ov-file#capture_handshakes)
+- [Macspoof](https://github.com/amec0e/MK7Scripts?tab=readme-ov-file#macspoof)
+- [Miniairo](https://github.com/amec0e/MK7Scripts?tab=readme-ov-file#miniairo)
+- [gather_probes](https://github.com/amec0e/MK7Scripts?tab=readme-ov-file#gather_probes)
+- [sort_probes](https://github.com/amec0e/MK7Scripts?tab=readme-ov-file#sort_probes)
+- [deauther](https://github.com/amec0e/MK7Scripts?tab=readme-ov-file#deauther)
+- [bpineap](https://github.com/amec0e/MK7Scripts?tab=readme-ov-file#bpineap)
+- [check_handshakes](https://github.com/amec0e/MK7Scripts?tab=readme-ov-file#check_handshakes)
+- [airedeauth](https://github.com/amec0e/MK7Scripts?tab=readme-ov-file#airedeauth)
+- [capture_handshakes](https://github.com/amec0e/MK7Scripts?tab=readme-ov-file#capture_handshakes)
+- [wpa2clean](https://github.com/amec0e/MK7Scripts?tab=readme-ov-file#wpa2clean)
+- [pcap_split](https://github.com/amec0e/MK7Scripts?tab=readme-ov-file#pcap_splitc)
+- [Process_MAL_Only.py](https://github.com/amec0e/MK7Scripts?tab=readme-ov-file#process_mal_onlypy)
+- [Process_MLA_Complete.py](https://github.com/amec0e/MK7Scripts?tab=readme-ov-file#process_mla_completepy)
 
 
 **Tip:** If you want to be able to tab autocomplete the commands, just put them in `/bin/`, this will allow you to autocomplete the command by pressing the tab key.
@@ -171,12 +173,12 @@ This is a wrapper around mdk4 to deauthenticate, the magic is you can specify a 
 
 **Usage:**
 ```bash
-./deauther -i wlan1mon -b AP_BSSID -d DURATION -w WAIT -r REAPEATS -p PACKET_SPEED
+./deauther -i wlan1mon -b AP_BSSID -d DURATION -w WAIT -r REAPEATS --ps PACKET_SPEED
 ```
 
 **Help Menu:**
 ```
-Usage: ./deauther [-i INTERFACE] [-c CHAN] [-b BSSID] [-s STATION] [-t AP_BSSID_FILE] [-T STATION_BSSID_FILE] [-d DURATION] [-w WAIT] [-r REPEATS] [-p SPEED] [-h]
+Usage: deauther [-i INTERFACE] [-c CHAN] [-b BSSID] [-s STATION] [-B AP_BSSID_FILE] [-S STATION_BSSID_FILE] [-d DURATION] [-w WAIT] [-r REPEATS] [-p SPEED] [-h]
 
 
 Options:
@@ -184,24 +186,34 @@ Options:
   -c CHAN         Specify the channel number (overrides when using a file).
   -b BSSID        Specify the target BSSID (mandatory for single target).
   -s STATION      Specify the target STATION BSSID (mandatory for single station).
-  -t FILE         Specify the path to the file containing target BSSIDs and channels (one per line, format: BSSID,CHANNEL).
-  -T FILE         Specify the path to the file containing target STATION BSSIDs and channels (one per line, format: BSSID,CHANNEL).
+  -B FILE         Specify the path to the file containing target BSSIDs and channels (one per line, format: BSSID,CHANNEL).
+  -S FILE         Specify the path to the file containing target STATION BSSIDs and channels (one per line, format: BSSID,CHANNEL).
   -d DURATION     Specify the duration of mdk4 runtime in seconds (default: 25).
   -w WAIT         Specify the delay between runs in seconds (default: 60).
   -r REPEATS      Specify how many times the cycle should repeat (default: 3).
-  -p SPEED        Specify the packets per second (default: unlimited).
+  --ps SPEED      Specify the packets per second (default: unlimited).
+  -u              Update -B BSSID Channels with Prompting.
+  --au            Update -B BSSID Channels without Pompting.
+  --st TIME       Specify channel update duration of --au.
+  --kf            Keep the temporary file made for -B or -S after use instead of deleting.
+  --am MODE       Specify Repeating Mode. 1 = Single Target, Full Repeats | 2 = All Targets, Full Repeats (default).
   -h              Show this help menu.
 
 Default Durations:
   DURATION       30 seconds
-  WAIT           40 seconds
-  REPEATS        3 times
-  SPEED          0 (unlimited)
+  WAIT           30 seconds
+  REPEATS        1 times
+  SPEED          0 (0 = unlimited)
+  MODE           2
+
+NOTE ON MODE:
+  1 - Single Target, Full Repeats Per Target, In Order
+  2 - All Targets, Full Repeats, In Order
 
 Target File Format for BSSID File:
 
   BSSID,CHAN
-  DE:AD:BE:EF:12:34,13
+  00:11:22:33:44:55,13
 
 Target File Format for Station BSSID File (Most Effective):
 
@@ -211,22 +223,22 @@ Target File Format for Station BSSID File (Most Effective):
 Examples:
 
 Single Target AP, Single Channel:
-  ./deauther -i wlan1mon -c 6 -b 00:11:22:33:44:55
+  deauther -i wlan1mon -c 6 -b 00:11:22:33:44:55
 
 Single Target Station, Single Channel:
-  ./deauther -i wlan1mon -s 00:11:22:33:44:55 -c 10
+  deauther -i wlan1mon -s 00:11:22:33:44:55 -c 10
 
 AP BSSID File, With Optional Defaults:
-  ./deauther -i wlan3mon -t targets.txt -d 20 -w 30 -r 5
+  deauther -i wlan3mon -B targets.txt -d 20 -w 30 -r 5
 
 AP BSSID File, Defaults Only:
-  ./deauther -i wlan1mon -t targets.txt
+  deauther -i wlan1mon -B targets.txt
 
 Station BSSID file, Defaults:
-  ./deauther -i wlan1mon -T stations.txt
+  deauther -i wlan1mon -S stations.txt
 
 Station BSSID file (Quick Sweep):
-  ./deauther -i wlan1mon -T stations.txt -d 11 -w 5 -r 1
+  deauther -i wlan1mon -S stations.txt -d 11 -w 5 -r 1
 ```
 
 
@@ -290,32 +302,50 @@ This is similar to deauther except this uses `aireplay-ng` to perform the deauth
 
 **Usage:**
 ```
-./airedeauth -i wlan1mon -a 00:11:22:33:44:55 -s aa:bb:cc:dd:ee:ff -c 6
+./airedeauth -i wlan1mon -b 00:11:22:33:44:55 -s aa:bb:cc:dd:ee:ff -c 6
 ```
 
 **Help Menu:**
 ```
-Usage: ./airedeauth [-i INTERFACE] [-a AP_BSSID] [-c CHANNEL] [-s STA_BSSID] [-t AP_BSSID_FILE] [-w WAIT] [-r REPEATS] [-n COUNT] [-x SPEED] [-R REASON] [-h]
+Usage: airedeauth [-i INTERFACE] [-b AP_BSSID] [-c CHANNEL] [-s STA_BSSID] [-f AP_BSSID_FILE] [-w WAIT] [-r REPEATS] [--pc COUNT] [--ps SPEED] [--rc REASON] [--sd STADURATION] [--st SCANTIME] [--fu FILTERUNASSOC] [--fbd FILTERBYDATA] [--wint WRITEINT] [--uch] [--ag] [--an] [--aq] [--kf] [-h] [--help]
 
 Options:
-  -i INTERFACE    Specify the interface name to use.
-  -a AP_BSSID     Specify the target AP BSSID (mandatory for single target if not using -t).
-  -c CHANNEL      Specify the channel number (mandatory if not using -t).
-  -s STA_BSSID    Specify the target STA BSSID (mandatory for single target if not using -t).
-  -t FILE         Specify the path to the file containing target AP BSSIDs and channels (one per line, format: BSSID,STATION,CHAN).
-  -w WAIT         Specify the delay between runs in seconds (default: $DEFAULT_WAIT).
-  -r REPEATS      Specify how many times the cycle should repeat (default: $DEFAULT_REPEATS).
-  -p COUNT        Specify the number of deauthentication packet groups to send per run (default: $DEFAULT_COUNT).
-  -x SPEED        Specify the packet speed (default: unlimited).
-  -R REASON       Specify the deauthentication reason code (default: $DEFAULT_REASON).
-  -h              Show this help menu.
+  -i INTERFACE      Specify the interface name to use.
+  -b AP_BSSID       Specify the target AP BSSID (mandatory for single target if not using -f).
+  -c CHANNEL        Specify the channel number (mandatory if not using -f).
+  -s STA_BSSID      Specify the target STA BSSID (mandatory for single target if not using -f).
+  -f FILE           Specify the path to the file containing target AP BSSIDs and channels (one per line, format: BSSID,STATION,CHAN).
+  -w WAIT           Specify the delay between runs in seconds (default: 30).
+  -r REPEATS        Specify how many times the cycle should repeat (default: 1).
+  --pc COUNT        Specify the number of deauthentication packet groups to send per run (default: 10).
+  --ps SPEED        Specify the packet speed (default: 5).
+  --rc REASON       Specify the deauthentication reason code (default: 0).
+  --sd STADURATION  Specify Duration for autogathering of stations. (default: 40
+  --ag              Autogather stations only. (MUST use --kf or the file will be deleted.)
+  --uch             Update AP BSSID Files Channels only.
+  --an              Auto Update Channels and Stations + Attack (supply file format: BSSID,,)
+  --aq              Auto Gather Stations + Attack.
+  --st SCANTIME     Specify the Scantime for channel update (default: 38).
+  --fu true         Specify Filter Unassociated client for channel update (default: true).
+  --fbd INT         Specify Filter AP By Data Recieved for channel update (default: 0).
+  --wint INT        Specify the write interval for channel update (default: 1).
+  --kf              Keep the generated file for --ag, --an, --aq or normal attack after use instead of deleting.
+  -h                Show this help menu.
+ --help             Same as -h.
 
 Default Values:
-  WAIT           $DEFAULT_WAIT seconds
-  REPEATS        $DEFAULT_REPEATS times
-  COUNT          $DEFAULT_COUNT packets
-  SPEED          $DEFAULT_SPEED packets/second.
-  REASON         $DEFAULT_REASON reason code.
+  WAIT              30 seconds
+  REPEATS           1 times
+  COUNT             10 packets
+  SPEED             5 packets/second
+  REASON            0 reason code
+  STADURATION       40 seconds
+  AUTOGATHER        false
+  WRITEINT          1
+  FILTERBYDATA      0
+  FILTERUNASSOC     true
+  SCANTIME          38
+  SCANTIME (AUTO)   65
 
 Reason Codes:
   1 - Unspecified reason.
@@ -328,21 +358,35 @@ Reason Codes:
   8 - Disassociated because sending STA is leaving or has left Basic Service Set.
   9 - STA requesting (re)association is not authenticated with responding STA.
 
-Target File Format for AP BSSID File:
+Target File Format for AP BSSID File (Autogather):
+NOTE: ,, IS A PLACEHOLDER DO NOT REMOVE IT
 
-  BSSID,STATION,CHAN
-  DE:AD:BE:EF:12:34,AA:BB:CC:DD:EE:FF,6
+  BSSID,,CHAN
+  DE:AD:BE:EF:12:34,,6
+
+Target File Format for AP BSSID File (Manual Gathering):
+
+  BSSID,STATION,CHANNEL
+  00:11:22:33:44:55,66:11:22:33:55:44,10
+
+Auto All File format (update/get channels, gather stations, attack):
+  BSSID,,
+  00:11:22:33:44:55,,
+
 
 Examples:
 
 Single Target AP, Single Channel:
-  airedeauth -i wlan1mon -a 00:11:22:33:44:55 -c 6
+  airedeauth -i wlan1mon -b 00:11:22:33:44:55 -c 6
 
 Single Target AP and Target STA, Single Channel:
-  airedeauth -i wlan1mon -a 00:11:22:33:44:55 -s aa:bb:cc:dd:ee:ff -c 6
+  airedeauth -i wlan1mon -b 00:11:22:33:44:55 -s aa:bb:cc:dd:ee:ff -c 6
 
 AP BSSID File, With Optional Defaults:
-  airedeauth -i wlan3mon -t targets.txt -w 30 -r 5
+  airedeauth -i wlan3mon -f targets.txt -w 30 -r 5
+
+AP BSSID File: Autogather
+  airedeauth -i wlan1mon -f ap-channel-only.txt --ag
 ```
 
 
@@ -355,57 +399,33 @@ This uses a simple loop to take a input list of BSSIDs and Channel numbers and o
 
 **Usage:**
 ```
-./capture_handshakes -i file.txt -t 60 -s
+./capture_handshakes -f bssids.txt -t 3600 -i iface -m 2
 ```
 
 **Help Menu:**
 ```
-Usage: ./capture_handshakes [-h] [-i FILE] [-t TIMER] [-s] [-u]
+Usage: capture_handshakes [-h] [-f FILE] [-t TIMER] [-i INTERFACE] [-m MODE] [-s] [-u] [--kf]
+
 Options:
-  -h          Display this help menu.
-  -i FILE     Input file containing BSSIDs and channels.
-  -t TIMER    Time to capture per target in seconds.
-  -s SWITCH   Shuffle lines in input file.
-  -u SWITCH   Update channel numbers for all BSSIDs in the input file.
+  -h             Display this help menu.
+  -f FILE        Input file containing BSSIDs and channels.
+  -t TIMER       Time to capture per target in seconds.
+  -s             Shuffle lines in the input file.
+  -u             Update BSSID channels.
+  -m MODE        Capture mode: 1 = Pineap, 2 = Airodump-ng (default: 2).
+  -i INTERFACE   Specify interface for mode 1 or 2 (not needed for -m 1).
+  --kf           Keep the validated file after processing (default is to delete it).
 
-Default Values for Channel Update:
+FILE FORMAT:
+BSSID,CHANNEL
 
-  Filter APs by data received:
-  FILTERBYDATA     0
+Usage (Update channels): capture_handshakes -f bssids.txt -t 1 -i iface -u
+Usage (default): capture_handshakes -f bssids.txt -t 3600 -i iface -m 1
 
-  Scan Duration to update channels (in seconds):
-  SCANTIME         30s
+NOTE:
 
-  Time to write results to temp_output (in seconds):
-  WRITEINT         1s
-
-  Filter unassociated clients:
-  FILTERUNASSOC    true
-
-Input File Format:
-  BSSID1,CHANNEL
-  BSSID2,CHANNEL
-  BSSID3,CHANNEL
-
-Usage Examples:
-
-Basic usage:
-  ./capture_handshakes -i inputfile.txt -t 300
-
-Shuffle input file:
-  ./capture_handshakes -i inputfile.txt -t 300 -s
-
-Update BSSID channels in input file:
-  ./capture_handshakes -i inputfile.txt -t 1 -u
-
----------------NOTES---------------
- 1. Input file must not contain spaces.
- 2. -u switch will modify your input files channels.
- 3. -u switch may add the dbi as the channel in some cases.
- 4. to fix 3 just remove offending character and re-run.
- 5. When using -u channel may be empty if AP is not as active or in range.
- 6. must specify -i and -t still when using -u switch.
------------------------------------
+-m 1 uses PineAPs currently selected interface so -i is not needed.
+however it can be used with -m 1
 ```
 
 
@@ -420,14 +440,15 @@ This is another simple script that uses tcpdump to read a .cap/pcap file for the
 
 **Help Menu:**
 ```
-Usage: ./check_handshakes -d DIR
+Usage: check_handshakes -d folder | -f file
 
-Check cleaned cap/pcap files in the specified directory for certain conditions."
+Check cleaned cap/pcap files in the specified directory for certain conditions.
 Created for the WiFi Pineapple, which cleans the capture files to include only 4 Keys and 1 Beacon.
-This will NOT WORK as intended with raw captures.
+This will likely not be able to process very large captures on the pineapple.
 
 Options:
   -d directory    Specify the directory containing cap/pcap files
+  -f file         Specify a single cap/pcap file to scan
 
 Info:
   - GREAT: Useful for both Hashcat & Aircrack-ng.
@@ -441,6 +462,58 @@ Conditions:
   - GOOD: 3 keys, Beacon/Probe Y, associated .22000 file Y
   - OK:   2 keys, Beacon/Probe Y, associated .22000 file Y
   - LIKELY BAD: 2-4 keys, Beacon/Probe Y, associated .22000 file N
-  - BAD:  1-4 keys, Beacon/Probe N 
+  - BAD:  1-4 keys, Beacon/Probe N
   - BAD: 1 Key, Beacon/Probe Y
+```
+
+## wpa2clean
+
+This is a script to clean a pcap/cap file and use tail and head to create a clean pcap with a single beacon and 4 keys.
+This is best paired when using the pcap_split to split the file into smaller pcaps to more it easier to process and more successful.
+
+**Usage:**
+```
+./wpa2clean -f chunk.pcap -o output-clean.pcap
+```
+
+**Help Menu:**
+```
+Usage:
+  wpa2clean -p <chunk_prefix_with_path> -o <output_file>
+  wpa2clean -f <single_pcap_or_cap_file> -o <output_file>
+
+Options:
+  -p   Prefix of chunked PCAP/CAP files to merge
+  -f   Single PCAP or CAP file to process
+  -o   Output file for the merged data
+```
+
+
+## pcap_split
+
+This C script is useful for splitting a raw capture i to smaller pcaps, allowing you to get a more precise pcap containing the first handshake pair and a beacon.
+This is best paired when using the wpa2clean script and check_handshakes, to confirm the pcap has the one containing a beacon and the 4-way Handshake message pair.
+
+**Usage:**
+```
+pcap_split input.pcap chunk 1M
+```
+
+**Help Menu:**
+```
+Usage: pcap_split input.pcap output_prefix chunk_limit
+
+Splits the pcap file (input.pcap) into smaller chunks. Each chunk
+will start with the original pcap global header. The output files will
+be named as output_prefix_000.pcap, output_prefix_001.pcap, etc. The
+output_prefix may include a path (e.g., /tmp/output/myfile).
+
+The chunk_limit should be specified in a human-readable format, e.g.:
+  100B      (100 bytes)
+  500K      (500 kilobytes)
+  100M      (100 megabytes)
+  2G        (2 gigabytes)
+
+Example:
+  pcap_split file.cap /tmp/output/myfile 100.32M
 ```
