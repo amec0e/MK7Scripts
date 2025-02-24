@@ -2,14 +2,15 @@
 
 # Help menu function
 function display_help {
-    echo "Usage: $0 -d directory"
+    echo "Usage: ${0} -d folder | -f file"
     echo
     echo "Check cleaned cap/pcap files in the specified directory for certain conditions."
     echo "Created for the WiFi Pineapple, which cleans the capture files to include only 4 Keys and 1 Beacon."
-    echo "This will NOT WORK as intended with raw captures."
+    echo "This will likely not be able to process very large captures on the pineapple."
     echo
     echo "Options:"
     echo "  -d directory    Specify the directory containing cap/pcap files"
+    echo "  -f file         Specify a single cap/pcap file to scan"
     echo
     echo "Info:"
     echo "  - GREAT: Useful for both Hashcat & Aircrack-ng."
@@ -31,6 +32,7 @@ function display_help {
 cleanup() {
     echo -e "\nCleaning up..."
     pkill -P $$
+    rm "/tmp/eapol_packets.txt" 2>/dev/null
     wait
     echo "Done."
     exit 0
@@ -40,68 +42,153 @@ trap cleanup SIGINT SIGTERM
 
 # Initialize variables with default values
 folder=""
+single_file=""
 
-# Parse command line options
-while getopts ":d:h" opt; do
-  case $opt in
-    d)
-      folder="$OPTARG"
-      ;;
-    h)
-      display_help
-      ;;
-    \?)
-      echo "Invalid option: -$OPTARG" >&2
-      exit 1
-      ;;
-    :)
-      echo "Option -$OPTARG requires an argument." >&2
-      exit 1
-      ;;
-  esac
+# Process command-line arguments using a while loop.
+while [ $# -gt 0 ]; do
+    case "$1" in
+        -d)
+            if [ -z "$2" ]; then
+                echo "Error: Option -d requires an argument."
+                display_help
+            fi
+            folder="$2"
+            shift 2
+            ;;
+        -f)
+            if [ -z "$2" ]; then
+                echo "Error: Option -f requires an argument."
+                display_help
+            fi
+            single_file="$2"
+            shift 2
+            ;;
+        -h)
+            display_help
+            ;;
+        *)
+            echo "Error: Invalid option: $1"
+            display_help
+            ;;
+    esac
 done
 
-# Check if the -d option is specified
-if [ -z "$folder" ]; then
-    echo "Option -d is mandatory. Please specify the directory containing cap/pcap files."
+# Ensure that either -d or -f is provided (but not both)
+if [ -n "$folder" ] && [ -n "$single_file" ]; then
+    echo "Please specify either -d (directory) or -f (file), not both."
+    display_help
+fi
+if [ -z "$folder" ] && [ -z "$single_file" ]; then
+    echo "Either -d or -f must be specified."
     display_help
 fi
 
-# Check if the specified directory exists
-if [ ! -d "$folder" ]; then
-  echo "Directory $folder does not exist."
-  exit 1
-fi
-
-# Check if the specified directory is empty or has no cap/pcap files
-if [ -z "$(ls -A "$folder"/*.pcap 2>/dev/null)" ] && [ -z "$(ls -A "$folder"/*.cap 2>/dev/null)" ]; then
-    echo "No cap/pcap files found in directory $folder."
-    exit 1
-fi
-
-# Loop through each file in the folder
-for file in "$folder"/*.pcap "$folder"/*.cap; do
-    # Check if the file exists
-    if [ ! -f "$file" ]; then
-        continue
+# Main processing (rest of your script remains unchanged)
+if [ -n "$folder" ]; then
+    # Folder mode: process every file in the directory
+    if [ ! -d "$folder" ]; then
+        echo "Directory $folder does not exist."
+        exit 1
+    fi
+    if [ -z "$(ls -A "$folder"/*.pcap 2>/dev/null)" ] && [ -z "$(ls -A "$folder"/*.cap 2>/dev/null)" ]; then
+        echo "No cap/pcap files found in directory $folder."
+        exit 1
     fi
 
+    for file in "$folder"/*.pcap "$folder"/*.cap; do
+        if [ ! -f "$file" ]; then
+            continue
+        fi
+        echo "$file"
+        keys_count=$(tcpdump -r "$file" 2>/dev/null | grep "key" | wc -l)
+        beacon_present=$(tcpdump -r "$file" 2>/dev/null | grep -q "Beacon" && echo "Y" || echo "N")
+        probe_present=$(tcpdump -r "$file" 2>/dev/null | grep -q "Probe" && echo "Y" || echo "N")
+        associated_file=""
+        if [ -e "${file%.pcap*}.22000" ]; then
+            associated_file="Y"
+        else
+            associated_file="N"
+        fi
+
+        condition="UNKNOWN"
+        if [ $keys_count -eq 4 ] && ( [ "$beacon_present" == "Y" ] || [ "$probe_present" == "Y" ] ) && [ "$associated_file" == "Y" ]; then
+            condition="GREAT"
+        elif [ $keys_count -eq 3 ] && ( [ "$beacon_present" == "Y" ] || [ "$probe_present" == "Y" ] ) && [ "$associated_file" == "Y" ]; then
+            condition="GOOD"
+        elif [ $keys_count -eq 2 ] && ( [ "$beacon_present" == "Y" ] || [ "$probe_present" == "Y" ] ) && [ "$associated_file" == "Y" ]; then
+            condition="OK"
+        elif [ $keys_count -ge 2 ] && [ $keys_count -le 4 ] && ( [ "$beacon_present" == "Y" ] || [ "$probe_present" == "Y" ] ) && [ "$associated_file" == "N" ]; then
+            condition="LIKELY BAD"
+        elif [ $keys_count -ge 1 ] && ( [ "$beacon_present" == "N" ] || [ "$probe_present" == "N" ] ); then
+            condition="BAD"
+        fi
+
+        echo "[$condition] Keys [$keys_count] Beacon [$beacon_present] Probe [$probe_present] Associated .22000 file [$associated_file]"
+
+        TEMP_FILE="/tmp/eapol_packets.txt"
+        tcpdump -r "$file" -n -e "ether proto 0x888e" 2>/dev/null | grep "EAPOL" > "$TEMP_FILE"
+
+        if [ ! -s "$TEMP_FILE" ]; then
+            echo "No EAPOL packets found in $file."
+            continue
+        fi
+
+        MESSAGE_FOUND=(0 0 0 0)
+        MESSAGE_STATUS=("Message 1" "Message 2" "Message 3" "Message 4")
+
+        while read -r line; do
+            if echo "$line" | grep -qE "DA:.* BSSID:.* SA:"; then
+                DA_FIRST=1
+            elif echo "$line" | grep -qE "BSSID:.* SA:.* DA:"; then
+                DA_FIRST=0
+            fi
+
+            LENGTH=$(echo "$line" | sed -n 's/.*len[[:space:]]*\([0-9]\+\).*/\1/p')
+            if [[ -z "$LENGTH" ]]; then
+                continue
+            fi
+
+            if [ "$DA_FIRST" -eq 1 ]; then
+                if [[ "$LENGTH" -ge 95 && "$LENGTH" -le 130 ]]; then
+                    MESSAGE_FOUND[0]=1
+                elif [[ "$LENGTH" -ge 150 && "$LENGTH" -le 200 ]]; then
+                    MESSAGE_FOUND[2]=1
+                fi
+            elif [ "$DA_FIRST" -eq 0 ]; then
+                if [[ "$LENGTH" -ge 117 && "$LENGTH" -le 149 ]]; then
+                    MESSAGE_FOUND[1]=1
+                elif [[ "$LENGTH" -ge 95 && "$LENGTH" -le 130 ]]; then
+                    MESSAGE_FOUND[3]=1
+                fi
+            fi
+        done < "$TEMP_FILE"
+
+        for i in "${!MESSAGE_STATUS[@]}"; do
+            if [[ ${MESSAGE_FOUND[$i]} -eq 1 ]]; then
+                echo "${MESSAGE_STATUS[$i]}"
+            fi
+        done
+    done
+
+else
+    # Single file mode
+    if [ ! -f "$single_file" ]; then
+        echo "File $single_file does not exist."
+        exit 1
+    fi
+    file="$single_file"
     echo "$file"
     
-    # Use tcpdump to analyze the pcap file and redirect output to /dev/null
     keys_count=$(tcpdump -r "$file" 2>/dev/null | grep "key" | wc -l)
     beacon_present=$(tcpdump -r "$file" 2>/dev/null | grep -q "Beacon" && echo "Y" || echo "N")
     probe_present=$(tcpdump -r "$file" 2>/dev/null | grep -q "Probe" && echo "Y" || echo "N")
     associated_file=""
-    
-    # Check if there is an associated .22000 file
     if [ -e "${file%.pcap*}.22000" ]; then
         associated_file="Y"
     else
         associated_file="N"
     fi
 
-    # Determine the condition
     condition="UNKNOWN"
     if [ $keys_count -eq 4 ] && ( [ "$beacon_present" == "Y" ] || [ "$probe_present" == "Y" ] ) && [ "$associated_file" == "Y" ]; then
         condition="GREAT"
@@ -114,9 +201,46 @@ for file in "$folder"/*.pcap "$folder"/*.cap; do
     elif [ $keys_count -ge 1 ] && ( [ "$beacon_present" == "N" ] || [ "$probe_present" == "N" ] ); then
         condition="BAD"
     fi
-    
-    # Formulate the fancy echo message
+
     echo "[$condition] Keys [$keys_count] Beacon [$beacon_present] Probe [$probe_present] Associated .22000 file [$associated_file]"
 
-    echo
-done
+    TEMP_FILE="/tmp/eapol_packets.txt"
+    tcpdump -r "$file" -n -e 2>/dev/null | grep "EAPOL" > "$TEMP_FILE"
+    
+    if [ ! -s "$TEMP_FILE" ]; then
+        echo "No EAPOL packets found in $file."
+        exit 0
+    fi
+    
+    MESSAGE_FOUND=(0 0 0 0)
+    MESSAGE_STATUS=("Message 1" "Message 2" "Message 3" "Message 4")
+    while read -r line; do
+        if echo "$line" | grep -qE "DA:.* BSSID:.* SA:"; then
+            DA_FIRST=1
+        elif echo "$line" | grep -qE "BSSID:.* SA:.* DA:"; then
+            DA_FIRST=0
+        fi
+        LENGTH=$(echo "$line" | sed -n 's/.*len[[:space:]]*\([0-9]\+\).*/\1/p')
+        [ -z "$LENGTH" ] && continue
+        if [ "$DA_FIRST" -eq 1 ]; then
+            if [[ "$LENGTH" -ge 95 && "$LENGTH" -le 130 ]]; then
+                MESSAGE_FOUND[0]=1
+            elif [[ "$LENGTH" -ge 150 && "$LENGTH" -le 200 ]]; then
+                MESSAGE_FOUND[2]=1
+            fi
+        elif [ "$DA_FIRST" -eq 0 ]; then
+            if [[ "$LENGTH" -ge 117 && "$LENGTH" -le 149 ]]; then
+                MESSAGE_FOUND[1]=1
+            elif [[ "$LENGTH" -ge 95 && "$LENGTH" -le 130 ]]; then
+                MESSAGE_FOUND[3]=1
+            fi
+        fi
+    done < "$TEMP_FILE"
+    
+    for i in "${!MESSAGE_STATUS[@]}"; do
+        if [[ ${MESSAGE_FOUND[$i]} -eq 1 ]]; then
+            echo "${MESSAGE_STATUS[$i]}"
+        fi
+    done
+    rm "$TEMP_FILE" 2>/dev/null
+fi
