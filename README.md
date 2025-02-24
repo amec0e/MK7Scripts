@@ -173,7 +173,7 @@ This is a wrapper around mdk4 to deauthenticate, the magic is you can specify a 
 
 **Usage:**
 ```bash
-./deauther -i wlan1mon -b AP_BSSID -d DURATION -w WAIT -r REAPEATS --ps PACKET_SPEED
+./deauther -i wlan1mon -B AP_BSSID.txt -d DURATION -w WAIT -r REPEATS --ps PACKET_SPEED
 ```
 
 **Help Menu:**
@@ -471,6 +471,9 @@ Conditions:
 This is a script to clean a pcap/cap file and use tail and head to create a clean pcap with a single beacon and 4 keys.
 This is best paired when using the pcap_split to split the file into smaller pcaps to more it easier to process and more successful.
 
+**requires:** `tcpdump`
+**install:** `opkg install tcpdump`
+
 **Usage:**
 ```
 ./wpa2clean -f chunk.pcap -o output-clean.pcap
@@ -493,6 +496,11 @@ Options:
 
 This C script is useful for splitting a raw capture i to smaller pcaps, allowing you to get a more precise pcap containing the first handshake pair and a beacon.
 This is best paired when using the wpa2clean script and check_handshakes, to confirm the pcap has the one containing a beacon and the 4-way Handshake message pair.
+
+**Build with:**
+```
+gcc -o pcap_split pcap_split.c
+```
 
 **Usage:**
 ```
