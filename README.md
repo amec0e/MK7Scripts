@@ -25,7 +25,7 @@ These tools are provided with the expectation that users will comply with all ap
 - [airedeauth](https://github.com/amec0e/MK7Scripts?tab=readme-ov-file#airedeauth)
 - [capture_handshakes](https://github.com/amec0e/MK7Scripts?tab=readme-ov-file#capture_handshakes)
 - [wpa2clean](https://github.com/amec0e/MK7Scripts?tab=readme-ov-file#wpa2clean)
-- [pcap_split](https://github.com/amec0e/MK7Scripts?tab=readme-ov-file#pcap_splitc)
+- [pcap_split](https://github.com/amec0e/MK7Scripts?tab=readme-ov-file#pcap_split)
 - [Process_MAL_Only.py](https://github.com/amec0e/MK7Scripts?tab=readme-ov-file#process_mal_onlypy)
 - [Process_MLA_Complete.py](https://github.com/amec0e/MK7Scripts?tab=readme-ov-file#process_mla_completepy)
 
