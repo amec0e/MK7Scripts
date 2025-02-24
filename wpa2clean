@@ -1,0 +1,99 @@
+#!/bin/bash
+
+print_usage() {
+    echo "Usage:"
+    echo "  $0 -p <chunk_prefix_with_path> -o <output_file>"
+    echo "  $0 -f <single_pcap_or_cap_file> -o <output_file>"
+    echo ""
+    echo "Options:"
+    echo "  -p   Prefix of chunked PCAP/CAP files to merge"
+    echo "  -f   Single PCAP or CAP file to process"
+    echo "  -o   Output file for the merged data"
+    exit 1
+}
+
+process_pcap() {
+    local input_file="$1"
+    local output_file="$2"
+
+    echo "Processing $input_file..."
+
+    file_size=$(wc -c < "$input_file")
+    if [ "$file_size" -le 24 ]; then
+        echo "Skipping $input_file (only contains header)"
+        return
+    fi
+
+    # Extract the first beacon
+    tcpdump -r "$input_file" -c 1 -w beacon.pcap "(type mgt subtype beacon) and less 65536"
+
+    # Extract up to 4 keys
+    tcpdump -r "$input_file" -c 4 -w keys.pcap "ether proto 0x888e and less 65536"
+
+    # Append beacon (if valid)
+    if [ -s beacon.pcap ] && [ "$(wc -c < beacon.pcap)" -gt 24 ]; then
+        head -c 24 beacon.pcap >> "$output_file"
+        tail -c +25 beacon.pcap >> "$output_file"
+    else
+        echo "Skipping beacon.pcap (empty or corrupted)"
+    fi
+
+    # Append keys (if valid)
+    if [ -s keys.pcap ] && [ "$(wc -c < keys.pcap)" -gt 24 ]; then
+        tail -c +25 keys.pcap >> "$output_file"
+    else
+        echo "Skipping keys.pcap (empty or corrupted)"
+    fi
+
+    rm -f beacon.pcap keys.pcap
+    echo "$input_file processed and added to $output_file."
+}
+
+# Argument Parsing
+while getopts "p:f:o:h" opt; do
+    case "$opt" in
+        p) chunk_prefix="$OPTARG" ;;
+        f) single_pcap="$OPTARG" ;;
+        o) output_file="$OPTARG" ;;
+        h) print_usage ;;
+        *) print_usage ;;
+    esac
+done
+
+if [ -z "$output_file" ]; then
+    echo "Error: Output file must be specified with -o."
+    print_usage
+fi
+
+> "$output_file"  # Ensure output file is empty
+
+if [ -n "$single_pcap" ]; then
+    if [ -n "$chunk_prefix" ]; then
+        echo "Error: Cannot use -p and -f together."
+        print_usage
+    fi
+
+    if [ ! -f "$single_pcap" ]; then
+        echo "Error: File '$single_pcap' does not exist."
+        exit 1
+    fi
+
+    process_pcap "$single_pcap" "$output_file"
+
+elif [ -n "$chunk_prefix" ]; then
+    chunk_dir=$(dirname "$chunk_prefix")
+    chunk_base=$(basename "$chunk_prefix")
+
+    # Search for both .pcap and .cap files
+    for file in "$chunk_dir"/"$chunk_base"*.{pcap,cap}; do
+        if [ -f "$file" ]; then
+            process_pcap "$file" "$output_file"
+        fi
+    done
+
+else
+    echo "Error: Either -p or -f must be specified."
+    print_usage
+fi
+
+echo "All processing complete. Output saved to $output_file."
