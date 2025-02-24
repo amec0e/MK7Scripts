@@ -77,7 +77,7 @@ echo "This might take some time if your log.db is big"
 # Copy the current log.db to tmp
 # Change to your log directory (default: /root/log.db)
 
-cp /root/pinelogs/activity/log.db /tmp
+cp /root/log.db /tmp
 
 # Constructing awk command to exclude SSIDs
 awk_command="BEGIN { while (getline < \"$input_file\") { ssids[\$0] = 1 } }"
