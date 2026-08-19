@@ -307,7 +307,7 @@ This is similar to deauther except this uses `aireplay-ng` to perform the deauth
 
 **Help Menu:**
 ```
-Usage: airedeauth [-i INTERFACE] [-b AP_BSSID] [-c CHANNEL] [-s STA_BSSID] [-f AP_BSSID_FILE] [-w WAIT] [-r REPEATS] [--pc COUNT] [--ps SPEED] [--rc REASON] [--sd STADURATION] [--st SCANTIME] [--fu FILTERUNASSOC] [--fbd FILTERBYDATA] [--wint WRITEINT] [--uch] [--ag] [--an] [--aq] [--kf] [-h] [--help]
+Usage: airedeauth [-i INTERFACE] [-b AP_BSSID] [-c CHANNEL] [-s STA_BSSID] [-f AP_BSSID_FILE] [-w WAIT] [-r REPEATS] [--pc COUNT] [--ps SPEED] [--rc REASON] [--sd STADURATION] [--st SCANTIME] [--fu FILTERUNASSOC] [--fbd FILTERBYDATA] [--wint WRITEINT] [--log FILE] [--uch] [--ag] [--an] [--aq] [--kf] [--rg] [-h] [--help]
 
 Options:
   -i INTERFACE      Specify the interface name to use.
@@ -331,7 +331,9 @@ Options:
   --wint INT        Specify the write interval for channel update (default: 1).
   --kf              Keep the generated file for --ag, --an, --aq or normal attack after use instead of deleting.
   -h                Show this help menu.
- --help             Same as -h.
+  --log FILE        Append timestamped output to FILE (for fire-and-forget runs in screen).
+  --rg              Re-detect channels + re-gather clients between each repeat cycle (file/auto mode; unattended sweeps).
+  --help             Same as -h.
 
 Default Values:
   WAIT              30 seconds
