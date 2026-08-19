@@ -166,6 +166,29 @@ python3 ./Process_MLA_Complete.py -i input.csv -o output.json
 
 **NOTE:** This is best run on a normal desktop or laptop, I would not try to run this on the Pineapple Itself.
 
+## Process_MAL_Json_Only.py:
+
+**requires:** `python3-unidecode`
+**install:** `opkg install python3-unidecode`
+
+This script takes the Maclookup.app json database and extracts and sorts all of the MAL addresses only (first 3 octets/pairs). This is also used for the WiFi Pineapples main recon
+
+You can check the output files key pairing count using: `jq -c 'keys_unsorted | length' youfile.json`
+
+**Usage:**
+```python
+python3 ./Proccess_MAL_Json_Only.py -i input.json -o output.json
+```
+
+**Upgrading:**
+
+Once you have your upgraded file and it is on your pineapple, simply replace the file and reboot your pineapple.
+
+1. Replace: `mv /root/output.json /etc/pineapple/ouis`
+2. Reboot Pineapple: `sync` , `reboot`
+
+**NOTE:** This one you can run on the Pineapple Itself.
+
 
 ## deauther:
 
