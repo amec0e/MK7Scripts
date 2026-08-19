@@ -1,7 +1,7 @@
 #!/bin/bash
 
 show_help() {
-    echo "Usage: ${0} [-i INTERFACE] [-b AP_BSSID] [-c CHANNEL] [-s STA_BSSID] [-f AP_BSSID_FILE] [-w WAIT] [-r REPEATS] [--pc COUNT] [--ps SPEED] [--rc REASON] [--sd STADURATION] [--st SCANTIME] [--fu FILTERUNASSOC] [--fbd FILTERBYDATA] [--wint WRITEINT] [--uch] [--ag] [--an] [--aq] [--kf] [--rg] [-h] [--help]"
+    echo "Usage: ${0} [-i INTERFACE] [-b AP_BSSID] [-c CHANNEL] [-s STA_BSSID] [-f AP_BSSID_FILE] [-w WAIT] [-r REPEATS] [--pc COUNT] [--ps SPEED] [--rc REASON] [--sd STADURATION] [--st SCANTIME] [--fu FILTERUNASSOC] [--fbd FILTERBYDATA] [--wint WRITEINT] [--log FILE] [--uch] [--ag] [--an] [--aq] [--kf] [--rg] [-h] [--help]"
     echo
     echo "Options:"
     echo "  -i INTERFACE      Specify the interface name to use."
