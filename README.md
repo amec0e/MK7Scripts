@@ -28,7 +28,7 @@ These tools are provided with the expectation that users will comply with all ap
 - [pcap_split](https://github.com/amec0e/MK7Scripts?tab=readme-ov-file#pcap_split)
 - [Process_MAL_Only.py](https://github.com/amec0e/MK7Scripts?tab=readme-ov-file#process_mal_onlypy)
 - [Process_MLA_Complete.py](https://github.com/amec0e/MK7Scripts?tab=readme-ov-file#process_mla_completepy)
-
+- [Process_MAL_Json_Only.py](https://github.com/amec0e/MK7Scripts#process_mal_json_onlypy)
 
 **Tip:** If you want to be able to tab autocomplete the commands, just put them in `/bin/`, this will allow you to autocomplete the command by pressing the tab key.
 
